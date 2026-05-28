@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id        String   @id @default(uuid())
+  name      String
+  address   String?
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  accounts Account[]
+  events   Event[]
+  payments Payment[]
+
+  @@map("stores")
+}
+
+model Account {
+  id           String   @id @default(uuid())
+  storeId      String   @map("store_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(admin)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  store             Store     @relation(fields: [storeId], references: [id])
+  confirmedPayments Payment[] @relation("ConfirmedBy")
+
+  @@map("accounts")
+}
+
+enum Role {
+  superadmin
+  admin
+}
+
+model Event {
+  id           String      @id @default(uuid())
+  storeId      String      @map("store_id")
+  title        String
+  description  String?
+  totalCount   Int         @map("total_count")
+  pricePerUnit Int         @map("price_per_unit")
+  status       EventStatus @default(draft)
+  startedAt    DateTime?   @map("started_at")
+  endedAt      DateTime?   @map("ended_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  store       Store        @relation(fields: [storeId], references: [id])
+  kujiNumbers KujiNumber[]
+  prizes      Prize[]
+  payments    Payment[]
+
+  @@map("events")
+}
+
+enum EventStatus {
+  draft
+  active
+  closed
+}
+
+model KujiNumber {
+  id        String    @id @default(uuid())
+  eventId   String    @map("event_id")
+  number    Int
+  isPrize   Boolean   @default(false) @map("is_prize")
+  isDrawn   Boolean   @default(false) @map("is_drawn")
+  drawnAt   DateTime? @map("drawn_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  event          Event          @relation(fields: [eventId], references: [id])
+  prizeNumber    PrizeNumber?
+  paymentNumbers PaymentNumber[]
+
+  @@unique([eventId, number])
+  @@map("kuji_numbers")
+}
+
+model Prize {
+  id          String   @id @default(uuid())
+  eventId     String   @map("event_id")
+  name        String
+  description String?
+  quantity    Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  event        Event         @relation(fields: [eventId], references: [id])
+  images       PrizeImage[]
+  prizeNumbers PrizeNumber[]
+
+  @@map("prizes")
+}
+
+model PrizeImage {
+  id        String   @id @default(uuid())
+  prizeId   String   @map("prize_id")
+  imageUrl  String   @map("image_url")
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  prize Prize @relation(fields: [prizeId], references: [id])
+
+  @@map("prize_images")
+}
+
+model PrizeNumber {
+  id           String @id @default(uuid())
+  prizeId      String @map("prize_id")
+  kujiNumberId String @unique @map("kuji_number_id")
+
+  prize      Prize      @relation(fields: [prizeId], references: [id])
+  kujiNumber KujiNumber @relation(fields: [kujiNumberId], references: [id])
+
+  @@map("prize_numbers")
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  eventId         String        @map("event_id")
+  storeId         String        @map("store_id")
+  totalAmount     Int           @map("total_amount")
+  method          PaymentMethod
+  status          PaymentStatus @default(pending)
+  pgTransactionId String?       @map("pg_transaction_id")
+  requestedAt     DateTime      @default(now()) @map("requested_at")
+  confirmedAt     DateTime?     @map("confirmed_at")
+  confirmedById   String?       @map("confirmed_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  event          Event           @relation(fields: [eventId], references: [id])
+  store          Store           @relation(fields: [storeId], references: [id])
+  confirmedBy    Account?        @relation("ConfirmedBy", fields: [confirmedById], references: [id])
+  paymentNumbers PaymentNumber[]
+
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  app_simple
+  app_card
+  manual
+}
+
+enum PaymentStatus {
+  pending
+  confirmed
+  cancelled
+}
+
+model PaymentNumber {
+  id           String @id @default(uuid())
+  paymentId    String @map("payment_id")
+  kujiNumberId String @unique @map("kuji_number_id")
+
+  payment    Payment    @relation(fields: [paymentId], references: [id])
+  kujiNumber KujiNumber @relation(fields: [kujiNumberId], references: [id])
+
+  @@map("payment_numbers")
+}

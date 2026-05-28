@@ -1,0 +1,26 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+allowBuild:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - esbuild
+  - fastify-socket.io
+  - prisma
+  - sharp
+  - unrs-resolver
+
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  fastify-socket.io: true
+  msgpackr-extract: true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - expo-modules-autolinking@56.0.14
+  - expo@56.0.6
