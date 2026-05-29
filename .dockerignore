@@ -1,0 +1,11 @@
+node_modules
+.git
+.gitignore
+**/.env
+**/.env.local
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/*.log
+apps/mobile
