@@ -10,6 +10,8 @@ allowBuild:
   - prisma
   - sharp
   - unrs-resolver
+  - msw
+  - msgpackr-extract
 
 allowBuilds:
   '@prisma/client': true
@@ -17,6 +19,7 @@ allowBuilds:
   esbuild: true
   fastify-socket.io: true
   msgpackr-extract: true
+  msw: true
   prisma: true
   sharp: true
   unrs-resolver: true
