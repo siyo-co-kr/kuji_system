@@ -5,6 +5,7 @@ import { requireAuth } from '../plugins/auth.js'
 const createEventSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
+  thumbnailUrl: z.string().url().optional().or(z.literal('')),
   totalCount: z.number().int().min(1).max(10000),
   pricePerUnit: z.number().int().min(0),
 })

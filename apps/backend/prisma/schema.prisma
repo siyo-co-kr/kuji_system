@@ -28,8 +28,10 @@ model Account {
   storeId      String   @map("store_id")
   email        String   @unique
   passwordHash String   @map("password_hash")
-  role         Role     @default(admin)
-  createdAt    DateTime @default(now()) @map("created_at")
+  role               Role     @default(admin)
+  isApproved         Boolean  @default(false) @map("is_approved")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   store             Store     @relation(fields: [storeId], references: [id])
   confirmedPayments Payment[] @relation("ConfirmedBy")
@@ -47,6 +49,7 @@ model Event {
   storeId      String      @map("store_id")
   title        String
   description  String?
+  thumbnailUrl String?     @map("thumbnail_url")
   totalCount   Int         @map("total_count")
   pricePerUnit Int         @map("price_per_unit")
   status       EventStatus @default(draft)
