@@ -13,11 +13,17 @@ RUN pnpm install --frozen-lockfile --filter @kuji/admin...
 FROM deps AS builder
 WORKDIR /app
 
+# NEXT_PUBLIC_* 변수는 빌드 시점에 소스코드에 삽입되므로 ARG로 받아야 함
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WS_URL
+
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+ENV NEXT_TELEMETRY_DISABLED=1
+
 COPY tsconfig.base.json ./
 COPY packages/types ./packages/types
 COPY apps/admin ./apps/admin
-
-ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN pnpm --filter @kuji/admin run build
 
