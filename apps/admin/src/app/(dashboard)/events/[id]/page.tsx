@@ -2,6 +2,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket'
+import { useAuthStore } from '@/stores/auth'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -10,18 +12,19 @@ import { Input } from '@/components/ui/input'
 import { ImageUpload } from '@/components/ui/image-upload'
 import { formatPrice, formatDate } from '@/lib/utils'
 import {
-  ArrowLeft, Play, StopCircle, Plus, Trash2,
-  Trophy, Hash, Loader2, ImageIcon, Shuffle, Gift
+  ArrowLeft, Plus, Trash2, Pencil, ChevronRight,
+  Trophy, Hash, Loader2, ImageIcon, Shuffle, Gift, Monitor, BookOpen, Settings
 } from 'lucide-react'
 import type { Event, Prize, EventStats } from '@kuji/types'
 
 const STATUS_LABEL = { draft: '준비중', active: '진행중', closed: '종료' } as const
 const STATUS_VARIANT = { draft: 'default', active: 'success', closed: 'warning' } as const
 
-interface EventDetail extends Event {
+interface EventDetail extends Omit<Event, 'bonusEnabled' | 'bonusThreshold' | 'isVisible'> {
   thumbnailUrl?: string | null
   bonusEnabled?: boolean
   bonusThreshold?: number
+  isVisible?: boolean
   prizes: (Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] })[]
 }
 
@@ -30,12 +33,17 @@ interface KujiNumberSimple { id: string; number: number; isDrawn: boolean }
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { account } = useAuthStore()
   const [event, setEvent] = useState<EventDetail | null>(null)
   const [stats, setStats] = useState<EventStats | null>(null)
   const [numbers, setNumbers] = useState<KujiNumberSimple[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddPrize, setShowAddPrize] = useState(false)
+  const [editingPrize, setEditingPrize] = useState<Prize | null>(null)
+  const [showEditEvent, setShowEditEvent] = useState(false)
   const [statusLoading, setStatusLoading] = useState(false)
+  const [visibilityLoading, setVisibilityLoading] = useState(false)
+  const [drawingId, setDrawingId] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     const [evRes, statsRes, numRes] = await Promise.all([
@@ -51,7 +59,67 @@ export default function EventDetailPage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const changeStatus = async (status: 'active' | 'closed') => {
+  // ── 실시간 소켓 연결 ────────────────────────────────────────
+  useEffect(() => {
+    if (!id || !account?.store.id) return
+    const socket = connectSocket()
+    socket.emit('admin:join', account.store.id)
+    socket.emit('event:join', id)
+
+    // 번호가 추첨됐을 때 (수동 추첨 또는 결제 승인)
+    socket.on('payment:confirmed', ({ numbers: drawnNumbers }) => {
+      const drawnIds = new Set((drawnNumbers as { id: string }[]).map((n) => n.id))
+
+      // 번호 그리드 업데이트
+      setNumbers((prev) => prev.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n))
+
+      // 통계 업데이트
+      setStats((prev) => prev
+        ? { ...prev, remainingCount: Math.max(0, prev.remainingCount - drawnNumbers.length) }
+        : prev
+      )
+
+      // 경품 현황 업데이트 (prizeNumbers 안의 isDrawn 반영)
+      setEvent((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          prizes: prev.prizes.map((prize) => ({
+            ...prize,
+            prizeNumbers: prize.prizeNumbers.map((pn) =>
+              drawnIds.has(pn.kujiNumber.id)
+                ? { ...pn, kujiNumber: { ...pn.kujiNumber, isDrawn: true } }
+                : pn
+            ),
+          })),
+        }
+      })
+    })
+
+    socket.on('event:updated', () => { fetchAll() })
+
+    return () => {
+      const s = getSocket()
+      s.off('payment:confirmed')
+      s.off('event:updated')
+      s.emit('event:leave', id)
+      disconnectSocket()
+    }
+  }, [id, account, fetchAll])
+
+  const toggleVisibility = async () => {
+    if (!event) return
+    setVisibilityLoading(true)
+    try {
+      await api.patch(`/events/${id}/visibility`, { isVisible: !event.isVisible })
+      await fetchAll()
+    } finally {
+      setVisibilityLoading(false)
+    }
+  }
+
+  const changeStatus = async (status: 'draft' | 'active' | 'closed') => {
+    if (event?.status === status) return
     setStatusLoading(true)
     try {
       await api.patch(`/events/${id}/status`, { status })
@@ -65,6 +133,22 @@ export default function EventDetailPage() {
     if (!confirm('경품을 삭제하시겠습니까?')) return
     await api.delete(`/prizes/${prizeId}`)
     await fetchAll()
+  }
+
+  // ── 번호 수동 추첨 ──────────────────────────────────────────
+  const drawNumber = async (numberId: string) => {
+    if (!event || event.status !== 'active') return
+    if (drawingId) return // 중복 방지
+    setDrawingId(numberId)
+    try {
+      await api.patch(`/events/${id}/numbers/${numberId}/draw`)
+      // 소켓 이벤트로 UI 업데이트됨
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '추첨 처리에 실패했습니다.'
+      alert(msg)
+    } finally {
+      setDrawingId(null)
+    }
   }
 
   if (loading) {
@@ -97,7 +181,6 @@ export default function EventDetailPage() {
 
       {/* 이벤트 헤더 */}
       <div className="flex items-start justify-between mb-6 gap-4">
-        {/* 썸네일 */}
         {event.thumbnailUrl && (
           <div className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border border-gray-200 shadow-sm">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -118,27 +201,48 @@ export default function EventDetailPage() {
           {event.description && <p className="text-sm text-gray-500">{event.description}</p>}
           <p className="text-sm text-gray-500 mt-1">
             {formatPrice(event.pricePerUnit)} / 장 · 총 {event.totalCount.toLocaleString()}장
-            {event.bonusEnabled && (
-              <span className="ml-2 text-amber-600 text-xs font-medium">
-                ({event.bonusThreshold}장 구매마다 1장 무료)
-              </span>
-            )}
             <span className="ml-2 text-gray-400 text-xs">생성 {formatDate(event.createdAt)}</span>
           </p>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          {event.status === 'draft' && (
-            <Button onClick={() => changeStatus('active')} loading={statusLoading}>
-              <Play size={15} className="mr-1.5" />
-              이벤트 시작
-            </Button>
-          )}
-          {event.status === 'active' && (
-            <Button variant="danger" onClick={() => changeStatus('closed')} loading={statusLoading}>
-              <StopCircle size={15} className="mr-1.5" />
-              이벤트 종료
-            </Button>
-          )}
+
+        {/* 우측 버튼 영역 */}
+        <div className="flex flex-col gap-2 flex-shrink-0 items-end">
+          {/* 이벤트 수정 */}
+          <Button variant="secondary" size="sm" onClick={() => setShowEditEvent(true)} className="gap-1.5">
+            <Settings size={14} /> 이벤트 수정
+          </Button>
+
+          {/* 디스플레이 토글 */}
+          <Button
+            variant={event.isVisible ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={toggleVisibility}
+            loading={visibilityLoading}
+            className={event.isVisible ? 'border-blue-300 text-blue-700 bg-blue-50' : 'text-gray-500'}
+          >
+            <Monitor size={15} className="mr-1.5" />
+            {event.isVisible ? '디스플레이 ON' : '디스플레이 OFF'}
+          </Button>
+
+          {/* 상태 변경 — 3개 버튼 항상 표시 */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {(['draft', 'active', 'closed'] as const).map((s) => (
+              <button
+                key={s}
+                disabled={statusLoading}
+                onClick={() => changeStatus(s)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  event.status === s
+                    ? s === 'active' ? 'bg-green-600 text-white'
+                    : s === 'closed' ? 'bg-orange-500 text-white'
+                    : 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                {STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -181,6 +285,7 @@ export default function EventDetailPage() {
                 {event.prizes.map((prize) => {
                   const drawn = prize.prizeNumbers.filter((pn) => pn.kujiNumber.isDrawn).length
                   const total = prize.prizeNumbers.length
+                  const remaining = total - drawn
                   return (
                     <li key={prize.id} className="flex items-center gap-3 px-6 py-3">
                       <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -194,18 +299,28 @@ export default function EventDetailPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm text-gray-900 truncate">{prize.name}</p>
-                        <p className="text-xs text-gray-500">
+                        {prize.description && (
+                          <p className="text-xs text-gray-400 truncate">{prize.description}</p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-0.5">
                           번호: {prize.prizeNumbers.map((pn) => pn.kujiNumber.number).sort((a, b) => a - b).join(', ')}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <Badge variant={drawn === total ? 'warning' : 'success'}>
-                          {drawn}/{total}
-                        </Badge>
-                      </div>
+                      {/* 남은 수량 / 전체 수량 */}
+                      <Badge variant={remaining === 0 ? 'warning' : 'success'}>
+                        {remaining}/{total}
+                      </Badge>
+                      {/* 수정 버튼 */}
+                      <button
+                        onClick={() => setEditingPrize(prize)}
+                        className="text-gray-400 hover:text-indigo-500 transition-colors"
+                        title="경품 수정"
+                      >
+                        <Pencil size={14} />
+                      </button>
                       {event.status !== 'active' && (
                         <button onClick={() => deletePrize(prize.id)}
-                          className="text-gray-400 hover:text-red-500 transition-colors ml-1">
+                          className="text-gray-400 hover:text-red-500 transition-colors">
                           <Trash2 size={15} />
                         </button>
                       )}
@@ -223,26 +338,34 @@ export default function EventDetailPage() {
             <CardTitle className="flex items-center gap-2">
               <Hash size={16} className="text-indigo-500" />
               번호 현황
+              {event.status === 'active' && (
+                <span className="text-xs font-normal text-gray-400 ml-1">(클릭 시 추첨)</span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* 번호 그리드 */}
             <div className="flex flex-wrap gap-1.5 max-h-72 overflow-y-auto">
               {numbers.map((n) => {
                 const isPrize = assignedNumberIds.has(n.id)
+                const isDrawing = drawingId === n.id
+                const canDraw = event.status === 'active' && !n.isDrawn
+
                 return (
-                  <div
+                  <button
                     key={n.id}
-                    className={`w-9 h-9 flex items-center justify-center rounded-lg text-xs font-semibold
-                      ${n.isDrawn
-                        ? 'bg-gray-200 text-gray-400 line-through'
-                        : isPrize
-                        ? 'bg-amber-100 text-amber-700 border border-amber-300'
-                        : 'bg-indigo-50 text-indigo-700'
+                    type="button"
+                    disabled={!canDraw || !!drawingId}
+                    onClick={() => canDraw && drawNumber(n.id)}
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg text-xs font-semibold transition-all
+                      ${isDrawing ? 'animate-pulse bg-indigo-400 text-white' :
+                        n.isDrawn ? 'bg-gray-200 text-gray-400 line-through cursor-default' :
+                        isPrize   ? 'bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' :
+                        canDraw   ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-200 cursor-pointer' :
+                                    'bg-indigo-50 text-indigo-700 cursor-default'
                       }`}
                   >
                     {n.number}
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -272,6 +395,24 @@ export default function EventDetailPage() {
         availableNumbers={availableForPrize}
         onAdded={() => { setShowAddPrize(false); fetchAll() }}
       />
+
+      {/* 경품 수정 모달 */}
+      {editingPrize && (
+        <EditPrizeModal
+          prize={editingPrize}
+          onClose={() => setEditingPrize(null)}
+          onSaved={() => { setEditingPrize(null); fetchAll() }}
+        />
+      )}
+
+      {/* 이벤트 정보 수정 모달 */}
+      {showEditEvent && event && (
+        <EditEventModal
+          event={event}
+          onClose={() => setShowEditEvent(false)}
+          onSaved={() => { setShowEditEvent(false); fetchAll() }}
+        />
+      )}
     </div>
   )
 }
@@ -292,6 +433,55 @@ function StatCard({ label, value, unit, highlight }: {
   )
 }
 
+// ── 경품 수정 모달 ─────────────────────────────────────────────
+function EditPrizeModal({
+  prize, onClose, onSaved,
+}: {
+  prize: Prize
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [name, setName] = useState(prize.name)
+  const [description, setDescription] = useState(prize.description ?? '')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) { setError('경품명을 입력해주세요.'); return }
+    setLoading(true)
+    try {
+      await api.patch(`/prizes/${prize.id}`, { name, description: description || undefined })
+      onSaved()
+    } catch {
+      setError('수정에 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="경품 수정" className="max-w-sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input label="경품명 *" value={name}
+          onChange={(e) => setName(e.target.value)} required />
+        <Input label="설명 (선택)" value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="경품 설명" />
+        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>
+          <Button type="submit" className="flex-1" loading={loading}>저장</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+interface CatalogItem { id: string; name: string; description?: string | null; imageUrl?: string | null; category?: { id: string; name: string } | null }
+interface CatalogCategory { id: string; name: string }
+
+// ── 경품 추가 모달 ─────────────────────────────────────────────
 function AddPrizeModal({
   open, onClose, eventId, availableNumbers, onAdded
 }: {
@@ -308,21 +498,84 @@ function AddPrizeModal({
   const [randomCount, setRandomCount] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // 카탈로그 패널
+  const [showCatalog, setShowCatalog] = useState(false)
+  const [catalog, setCatalog] = useState<CatalogItem[]>([])
+  const [categories, setCategories] = useState<CatalogCategory[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('')
+  // 카탈로그 등록 서브 폼
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newCatId, setNewCatId] = useState('')
+  const [newLoading, setNewLoading] = useState(false)
 
-  // 모달 닫힐 때 초기화
   const handleClose = () => {
     setName(''); setDescription(''); setImageUrl('')
     setSelectedNumbers([]); setRandomCount(''); setError('')
+    setShowCatalog(false); setShowNewForm(false)
     onClose()
   }
 
-  const toggleNumber = (id: string) => {
+  const openCatalog = async () => {
+    setShowCatalog(true)
+    setCatalogLoading(true)
+    try {
+      const [catRes, itemRes] = await Promise.all([
+        api.get('/prize-catalog/categories'),
+        api.get('/prize-catalog'),
+      ])
+      setCategories(catRes.data)
+      setCatalog(itemRes.data)
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
+
+  const filterCatalog = async (catId: string) => {
+    setFilterCategoryId(catId)
+    setCatalogLoading(true)
+    try {
+      const res = await api.get(`/prize-catalog${catId ? `?categoryId=${catId}` : ''}`)
+      setCatalog(res.data)
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
+
+  const importFromCatalog = (item: CatalogItem) => {
+    setName(item.name)
+    setDescription(item.description ?? '')
+    setImageUrl(item.imageUrl ?? '')
+    setShowCatalog(false)
+    setShowNewForm(false)
+  }
+
+  const saveToCatalog = async () => {
+    if (!newName.trim()) return
+    setNewLoading(true)
+    try {
+      await api.post('/prize-catalog', {
+        name: newName, description: newDesc || null,
+        categoryId: newCatId || null,
+      })
+      setNewName(''); setNewDesc(''); setNewCatId('')
+      setShowNewForm(false)
+      // 목록 새로고침
+      const res = await api.get(`/prize-catalog${filterCategoryId ? `?categoryId=${filterCategoryId}` : ''}`)
+      setCatalog(res.data)
+    } finally {
+      setNewLoading(false)
+    }
+  }
+
+  const toggleNumber = (numberId: string) => {
     setSelectedNumbers((prev) =>
-      prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]
+      prev.includes(numberId) ? prev.filter((n) => n !== numberId) : [...prev, numberId]
     )
   }
 
-  /** 랜덤 배치: availableNumbers 에서 N개를 무작위로 선택 */
   const randomAssign = () => {
     const n = Number(randomCount)
     if (!n || n < 1 || n > availableNumbers.length) {
@@ -342,15 +595,11 @@ function AddPrizeModal({
     }
     setLoading(true)
     try {
-      // 1. 경품 생성
       const res = await api.post('/prizes', {
-        eventId,
-        name,
-        description,
+        eventId, name, description,
         quantity: selectedNumbers.length,
         numberIds: selectedNumbers,
       })
-      // 2. 이미지가 있으면 추가
       if (imageUrl) {
         await api.post(`/prizes/${res.data.id}/images`, { imageUrl, order: 0 })
       }
@@ -365,23 +614,106 @@ function AddPrizeModal({
 
   return (
     <Modal open={open} onClose={handleClose} title="경품 추가" className="max-w-lg">
+      {/* 카탈로그 패널 */}
+      {showCatalog && (
+        <div className="mb-4 border border-indigo-200 rounded-xl bg-indigo-50/40 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-indigo-700 flex items-center gap-1.5">
+              <BookOpen size={14} /> 경품 카탈로그
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowNewForm((v) => !v)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-300 rounded px-2 py-0.5">
+                + 카탈로그 등록
+              </button>
+              <button onClick={() => { setShowCatalog(false); setShowNewForm(false) }}
+                className="text-gray-400 hover:text-gray-600 text-sm">✕</button>
+            </div>
+          </div>
+
+          {/* 카탈로그 등록 서브 폼 */}
+          {showNewForm && (
+            <div className="mb-2 p-2.5 bg-white rounded-lg border border-indigo-100 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <input value={newName} onChange={(e) => setNewName(e.target.value)}
+                  placeholder="경품명 *" className="text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                <select value={newCatId} onChange={(e) => setNewCatId(e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                  <option value="">카테고리 없음</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
+                placeholder="설명 (선택)" className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+              <button type="button" onClick={saveToCatalog} disabled={!newName || newLoading}
+                className="w-full text-xs bg-indigo-600 text-white rounded py-1.5 disabled:opacity-50 hover:bg-indigo-700">
+                {newLoading ? '저장 중...' : '카탈로그에 저장'}
+              </button>
+            </div>
+          )}
+
+          {/* 카테고리 필터 */}
+          {categories.length > 0 && (
+            <div className="flex gap-1 mb-2 flex-wrap">
+              <button onClick={() => filterCatalog('')}
+                className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                  !filterCategoryId ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-indigo-50'
+                }`}>전체</button>
+              {categories.map((c) => (
+                <button key={c.id} onClick={() => filterCatalog(c.id)}
+                  className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                    filterCategoryId === c.id ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-indigo-50'
+                  }`}>{c.name}</button>
+              ))}
+            </div>
+          )}
+
+          {catalogLoading ? (
+            <div className="text-center py-3"><Loader2 size={18} className="animate-spin text-indigo-400 mx-auto" /></div>
+          ) : catalog.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-2">등록된 경품이 없습니다</p>
+          ) : (
+            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+              {catalog.map((item) => (
+                <button key={item.id} type="button" onClick={() => importFromCatalog(item)}
+                  className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-white hover:shadow-sm transition-all text-sm">
+                  <div className="w-7 h-7 rounded bg-gray-200 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                    {item.imageUrl
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                      : <Gift size={12} className="text-gray-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 truncate text-xs">{item.name}</p>
+                    {item.description && <p className="text-xs text-gray-400 truncate">{item.description}</p>}
+                  </div>
+                  <ChevronRight size={12} className="text-gray-400 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex gap-4 items-start">
-          {/* 이미지 업로드 */}
-          <ImageUpload
-            label="이미지 (선택)"
-            value={imageUrl}
-            onChange={setImageUrl}
-          />
+          <ImageUpload label="이미지 (선택)" value={imageUrl} onChange={setImageUrl} />
           <div className="flex-1 space-y-3">
-            <Input name="name" label="경품명 *" placeholder="예: A상 — 피규어"
-              value={name} onChange={(e) => setName(e.target.value)} required />
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Input name="name" label="경품명 *" placeholder="예: A상 — 피규어"
+                  value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+              <Button type="button" variant="secondary" size="sm" onClick={openCatalog}
+                className="flex-shrink-0 gap-1 mb-0.5" title="카탈로그에서 불러오기">
+                <BookOpen size={13} /> 카탈로그
+              </Button>
+            </div>
             <Input name="description" label="설명 (선택)" placeholder="경품 설명"
               value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
         </div>
 
-        {/* 랜덤 배치 */}
         <div>
           <p className="text-sm font-medium text-gray-700 mb-2">
             당첨 번호 선택 *
@@ -390,53 +722,30 @@ function AddPrizeModal({
             </span>
           </p>
           <div className="flex gap-2 mb-2">
-            <Input
-              type="number"
-              placeholder={`개수 (최대 ${availableNumbers.length})`}
-              value={randomCount}
-              onChange={(e) => setRandomCount(e.target.value)}
-              min={1}
-              max={availableNumbers.length}
-              className="w-40"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={randomAssign}
-              disabled={!randomCount}
-              className="gap-1.5 flex-shrink-0"
-            >
-              <Shuffle size={14} />
-              랜덤 배치
+            <Input type="number" placeholder={`개수 (최대 ${availableNumbers.length})`}
+              value={randomCount} onChange={(e) => setRandomCount(e.target.value)}
+              min={1} max={availableNumbers.length} className="w-40" />
+            <Button type="button" variant="secondary" size="sm"
+              onClick={randomAssign} disabled={!randomCount} className="gap-1.5 flex-shrink-0">
+              <Shuffle size={14} /> 랜덤 배치
             </Button>
             {selectedNumbers.length > 0 && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setSelectedNumbers([])}
-                className="text-gray-500"
-              >
+              <Button type="button" variant="secondary" size="sm"
+                onClick={() => setSelectedNumbers([])} className="text-gray-500">
                 초기화
               </Button>
             )}
           </div>
-
           {availableNumbers.length === 0 ? (
             <p className="text-sm text-gray-400 py-2">배정 가능한 번호가 없습니다</p>
           ) : (
             <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto p-1 border border-gray-100 rounded-lg bg-gray-50">
               {availableNumbers.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  onClick={() => toggleNumber(n.id)}
+                <button key={n.id} type="button" onClick={() => toggleNumber(n.id)}
                   className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors
                     ${selectedNumbers.includes(n.id)
                       ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-white text-gray-700 hover:bg-indigo-50 border border-gray-200'}`}
-                >
+                      : 'bg-white text-gray-700 hover:bg-indigo-50 border border-gray-200'}`}>
                   {n.number}
                 </button>
               ))}
@@ -448,6 +757,102 @@ function AddPrizeModal({
         <div className="flex gap-2 pt-2">
           <Button type="button" variant="secondary" className="flex-1" onClick={handleClose}>취소</Button>
           <Button type="submit" className="flex-1" loading={loading}>추가</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ── 이벤트 정보 수정 모달 ─────────────────────────────────────
+
+function EditEventModal({
+  event, onClose, onSaved,
+}: {
+  event: EventDetail
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState({
+    title:          event.title,
+    description:    event.description ?? '',
+    thumbnailUrl:   event.thumbnailUrl ?? '',
+    pricePerUnit:   String(event.pricePerUnit),
+    bonusEnabled:   event.bonusEnabled ?? false,
+    bonusThreshold: String(event.bonusThreshold ?? 10),
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (!form.title.trim()) { setError('이벤트명을 입력해주세요.'); return }
+    setLoading(true)
+    try {
+      await api.patch(`/events/${event.id}`, {
+        title:          form.title,
+        description:    form.description || null,
+        thumbnailUrl:   form.thumbnailUrl || null,
+        pricePerUnit:   Number(form.pricePerUnit),
+        bonusEnabled:   form.bonusEnabled,
+        bonusThreshold: Number(form.bonusThreshold),
+      })
+      onSaved()
+    } catch {
+      setError('수정에 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="이벤트 수정" className="max-w-md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input label="이벤트명 *" name="title" value={form.title}
+          onChange={handleChange} required />
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-gray-700">설명</label>
+          <textarea name="description" rows={2} value={form.description}
+            onChange={handleChange} placeholder="이벤트 설명"
+            className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <Input label="장당 가격 (원)" name="pricePerUnit" type="number"
+          min={0} value={form.pricePerUnit} onChange={handleChange} />
+        <ImageUpload label="썸네일 이미지" value={form.thumbnailUrl}
+          onChange={(url) => setForm((f) => ({ ...f, thumbnailUrl: url }))} />
+
+        {/* 보너스 설정 */}
+        <div className={`rounded-xl border px-4 py-3 transition-colors ${
+          form.bonusEnabled ? 'border-indigo-300 bg-indigo-50/50' : 'border-gray-200 bg-gray-50/50'
+        }`}>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={form.bonusEnabled}
+              onChange={(e) => setForm((f) => ({ ...f, bonusEnabled: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-indigo-600" />
+            <div>
+              <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                <Gift size={13} className="text-amber-500" />
+                {form.bonusThreshold}+1 보너스
+              </p>
+              <p className="text-xs text-gray-500">N장 구매 시 1장 무료</p>
+            </div>
+          </label>
+          {form.bonusEnabled && (
+            <div className="mt-2 pl-7">
+              <Input label="기준 수량 (N)" name="bonusThreshold" type="number"
+                min={2} max={100} value={form.bonusThreshold} onChange={handleChange} />
+            </div>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>
+          <Button type="submit" className="flex-1" loading={loading}>저장</Button>
         </div>
       </form>
     </Modal>

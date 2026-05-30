@@ -205,6 +205,7 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
 
     app.io.to(`event:${payment.eventId}`).emit('payment:confirmed', {
       paymentId: id,
+      eventId: payment.eventId,
       numbers: drawnNumbers,
     })
 

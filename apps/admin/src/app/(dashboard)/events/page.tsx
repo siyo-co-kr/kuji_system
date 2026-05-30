@@ -10,7 +10,7 @@ import { Modal } from '@/components/ui/modal'
 import { Input } from '@/components/ui/input'
 import { ImageUpload } from '@/components/ui/image-upload'
 import { formatPrice, formatDate } from '@/lib/utils'
-import { Plus, ChevronRight, Loader2, ImageIcon, Trash2, Trash, Gift } from 'lucide-react'
+import { Plus, ChevronRight, Loader2, ImageIcon, Trash2, Trash, Gift, Monitor } from 'lucide-react'
 import type { Event } from '@kuji/types'
 
 const STATUS_LABEL = { draft: '준비중', active: '진행중', closed: '종료' } as const
@@ -165,12 +165,18 @@ export default function EventsPage() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <Badge variant={STATUS_VARIANT[event.status]}>{STATUS_LABEL[event.status]}</Badge>
                           {event.bonusEnabled && (
                             <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
                               <Gift size={10} />
                               {event.bonusThreshold}+1
+                            </span>
+                          )}
+                          {event.isVisible && (
+                            <span className="inline-flex items-center gap-0.5 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">
+                              <Monitor size={10} />
+                              디스플레이
                             </span>
                           )}
                           <h3 className="font-semibold text-gray-900 truncate">{event.title}</h3>
@@ -218,12 +224,13 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
   const [form, setForm] = useState({
     title: '', description: '', totalCount: '', pricePerUnit: '',
     thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10',
+    isVisible: false,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleClose = () => {
-    setForm({ title: '', description: '', totalCount: '', pricePerUnit: '', thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10' })
+    setForm({ title: '', description: '', totalCount: '', pricePerUnit: '', thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10', isVisible: false })
     setError('')
     onClose()
   }
@@ -255,6 +262,7 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
         totalCount, pricePerUnit,
         bonusEnabled: form.bonusEnabled,
         bonusThreshold: form.bonusEnabled ? bonusThreshold : 10,
+        isVisible: form.isVisible,
       })
       onCreated()
       handleClose()
@@ -332,6 +340,33 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
 
         <ImageUpload label="썸네일 이미지 (선택)" value={form.thumbnailUrl}
           onChange={(url) => setForm((f) => ({ ...f, thumbnailUrl: url }))} />
+
+        {/* ── 디스플레이 노출 설정 ── */}
+        <div className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${
+          form.isVisible ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50/50'
+        }`}>
+          <div>
+            <p className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+              <Monitor size={14} className={form.isVisible ? 'text-blue-600' : 'text-gray-400'} />
+              디스플레이 앱에 표시
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">활성화 시 매장 디스플레이 화면에 노출됩니다</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.isVisible}
+            onClick={() => setForm((f) => ({ ...f, isVisible: !f.isVisible }))}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+              form.isVisible ? 'bg-blue-600' : 'bg-gray-200'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              form.isVisible ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-2 pt-2">
           <Button type="button" variant="secondary" className="flex-1" onClick={handleClose}>취소</Button>

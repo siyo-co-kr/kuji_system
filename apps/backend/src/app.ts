@@ -13,6 +13,9 @@ import { prizeRoutes } from './routes/prizes.js'
 import { paymentRoutes } from './routes/payments.js'
 import { superadminRoutes } from './routes/superadmin.js'
 import { storeRoutes } from './routes/stores.js'
+import { publicRoutes } from './routes/public.js'
+import { prizeCatalogRoutes } from './routes/prize-catalog.js'
+import { displayConfigRoutes } from './routes/display-config.js'
 import { noticeRoutes } from './routes/notices.js'
 import { dashboardRoutes } from './routes/dashboard.js'
 import { uploadRoutes } from './routes/upload.js'
@@ -26,8 +29,12 @@ export async function buildApp() {
   })
 
   await app.register(helmet, { contentSecurityPolicy: false })
+
+  // 다중 오리진 지원 (어드민 + 디스플레이 앱)
+  const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+    .split(',').map((o) => o.trim()).filter(Boolean)
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
     credentials: true,
   })
   await app.register(jwt, {
@@ -38,7 +45,7 @@ export async function buildApp() {
   })
   await app.register(socketio, {
     cors: {
-      origin: process.env.CORS_ORIGIN || '*',
+      origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
     },
   })
 
@@ -54,6 +61,9 @@ export async function buildApp() {
   await app.register(noticeRoutes, { prefix: '/api/notices' })
   await app.register(dashboardRoutes, { prefix: '/api/dashboard' })
   await app.register(uploadRoutes, { prefix: '/api/upload' })
+  await app.register(publicRoutes, { prefix: '/api/public' })
+  await app.register(prizeCatalogRoutes, { prefix: '/api/prize-catalog' })
+  await app.register(displayConfigRoutes, { prefix: '/api/display-config' })
 
   app.ready(() => {
     registerSocketHandlers(app)

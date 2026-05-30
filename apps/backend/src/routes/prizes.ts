@@ -65,6 +65,33 @@ export const prizeRoutes: FastifyPluginAsync = async (app) => {
     return reply.status(201).send(image)
   })
 
+  // ── 경품 수정 (이름·설명만 변경) ─────────────────────────────
+  app.patch('/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { name, description } = request.body as { name?: string; description?: string }
+    const { storeId } = request.user
+
+    // 소유 확인
+    const prize = await app.prisma.prize.findFirst({
+      where: { id, event: { storeId } },
+    })
+    if (!prize) return reply.status(404).send({ error: 'Prize not found' })
+
+    const updated = await app.prisma.prize.update({
+      where: { id },
+      data: {
+        ...(name        !== undefined && { name }),
+        ...(description !== undefined && { description }),
+      },
+      include: {
+        images: true,
+        prizeNumbers: { include: { kujiNumber: true } },
+      },
+    })
+
+    return reply.send(updated)
+  })
+
   app.delete('/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string }
 

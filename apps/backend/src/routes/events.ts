@@ -2,6 +2,15 @@ import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../plugins/auth.js'
 
+const updateEventSchema = z.object({
+  title:          z.string().min(1).optional(),
+  description:    z.string().optional().nullable(),
+  thumbnailUrl:   z.string().url().optional().nullable().or(z.literal('')),
+  bonusEnabled:   z.boolean().optional(),
+  bonusThreshold: z.number().int().min(2).max(100).optional(),
+  pricePerUnit:   z.number().int().min(0).optional(),
+})
+
 const createEventSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
@@ -10,6 +19,7 @@ const createEventSchema = z.object({
   pricePerUnit: z.number().int().min(0),
   bonusEnabled: z.boolean().optional().default(false),
   bonusThreshold: z.number().int().min(2).max(100).optional().default(10),
+  isVisible: z.boolean().optional().default(false),
 })
 
 const bulkDeleteSchema = z.object({
@@ -92,6 +102,7 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
           thumbnailUrl:   body.thumbnailUrl   || null,
           bonusEnabled:   body.bonusEnabled    ?? false,
           bonusThreshold: body.bonusThreshold  ?? 10,
+          isVisible:      body.isVisible       ?? false,
         },
       })
 
@@ -108,9 +119,30 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     return reply.status(201).send(event)
   })
 
+  // ── 이벤트 정보 수정 ─────────────────────────────────────────
+  app.patch('/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { storeId } = request.user
+    const body = updateEventSchema.parse(request.body)
+
+    const event = await app.prisma.event.findFirst({ where: { id, storeId, ...notDeleted } })
+    if (!event) return reply.status(404).send({ error: 'Event not found' })
+
+    const updated = await app.prisma.event.update({
+      where: { id },
+      data: {
+        ...body,
+        thumbnailUrl: body.thumbnailUrl === '' ? null : body.thumbnailUrl,
+      },
+    })
+
+    return updated
+  })
+
+  // ── 이벤트 상태 변경 (자유롭게 전환 가능) ───────────────────
   app.patch('/:id/status', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { status } = request.body as { status: 'active' | 'closed' }
+    const { status } = request.body as { status: 'draft' | 'active' | 'closed' }
     const { storeId } = request.user
 
     const event = await app.prisma.event.findFirst({ where: { id, storeId, ...notDeleted } })
@@ -120,9 +152,57 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
       where: { id },
       data: {
         status,
-        startedAt: status === 'active' ? new Date() : undefined,
-        endedAt: status === 'closed' ? new Date() : undefined,
+        startedAt: status === 'active' && !event.startedAt ? new Date() : undefined,
+        endedAt:   status === 'closed' && !event.endedAt   ? new Date() : undefined,
       },
+    })
+
+    app.io.to(`event:${id}`).emit('event:updated', { eventId: id })
+    return updated
+  })
+
+  // ── 번호 수동 추첨 (어드민 클릭) ─────────────────────────────
+  app.patch('/:id/numbers/:numberId/draw', { preHandler: requireAuth }, async (request, reply) => {
+    const { id, numberId } = request.params as { id: string; numberId: string }
+    const { storeId } = request.user
+
+    // 이벤트 소유 확인
+    const event = await app.prisma.event.findFirst({ where: { id, storeId, ...notDeleted } })
+    if (!event) return reply.status(404).send({ error: 'Event not found' })
+
+    const kujiNumber = await app.prisma.kujiNumber.findFirst({
+      where: { id: numberId, eventId: id },
+    })
+    if (!kujiNumber) return reply.status(404).send({ error: 'Number not found' })
+    if (kujiNumber.isDrawn) return reply.status(400).send({ error: '이미 추첨된 번호입니다.' })
+
+    const updated = await app.prisma.kujiNumber.update({
+      where: { id: numberId },
+      data: { isDrawn: true, drawnAt: new Date() },
+    })
+
+    // 디스플레이 앱이 payment:confirmed 를 수신하여 번호를 업데이트함
+    app.io.to(`event:${id}`).emit('payment:confirmed', {
+      paymentId: null,
+      eventId: id,
+      numbers: [updated],
+    })
+
+    return updated
+  })
+
+  // ── 디스플레이 노출 설정 ──────────────────────────────────
+  app.patch('/:id/visibility', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { isVisible } = request.body as { isVisible: boolean }
+    const { storeId } = request.user
+
+    const event = await app.prisma.event.findFirst({ where: { id, storeId, ...notDeleted } })
+    if (!event) return reply.status(404).send({ error: 'Event not found' })
+
+    const updated = await app.prisma.event.update({
+      where: { id },
+      data: { isVisible },
     })
 
     app.io.to(`event:${id}`).emit('event:updated', { eventId: id })

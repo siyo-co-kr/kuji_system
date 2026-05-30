@@ -8,13 +8,13 @@ import { api } from '@/lib/api'
 import { Modal } from '@/components/ui/modal'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { CalendarDays, CreditCard, LogOut, Ticket, Store, Users, ShieldCheck, Settings, Megaphone, LayoutDashboard, History } from 'lucide-react'
+import { CalendarDays, LogOut, Ticket, Store, Users, ShieldCheck, Settings, Megaphone, LayoutDashboard, Gift, Monitor } from 'lucide-react'
 
 const baseNavItems = [
-  { href: '/',               label: '대시보드',   icon: LayoutDashboard },
-  { href: '/events',         label: '이벤트 관리', icon: CalendarDays },
-  { href: '/payments',       label: '결제 승인',   icon: CreditCard },
-  { href: '/payments/history', label: '결제 내역', icon: History },
+  { href: '/',        label: '대시보드',      icon: LayoutDashboard },
+  { href: '/events',  label: '이벤트 관리',    icon: CalendarDays },
+  { href: '/prizes',  label: '경품 카탈로그',  icon: Gift },
+  { href: '/display', label: '디스플레이 설정', icon: Monitor },
 ]
 
 const superAdminNavItems = [

@@ -14,8 +14,12 @@ export interface Event {
   storeId: string
   title: string
   description?: string
+  thumbnailUrl?: string | null
   totalCount: number
   pricePerUnit: number
+  bonusEnabled: boolean
+  bonusThreshold: number
+  isVisible: boolean
   status: EventStatus
   startedAt?: string
   endedAt?: string
