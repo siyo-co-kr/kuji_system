@@ -7,18 +7,21 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatPrice, formatDate } from '@/lib/utils'
-import { CheckCircle2, XCircle, Clock, Wifi, Loader2 } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, Wifi, Loader2, Gift } from 'lucide-react'
 
 interface PendingPayment {
   id: string
   eventId: string
   totalAmount: number
+  paidCount: number
+  bonusCount: number
   method: string
   status: string
   requestedAt: string
-  event: { id: string; title: string }
+  event: { id: string; title: string; bonusEnabled: boolean }
   paymentNumbers: {
     kujiNumber: { id: string; number: number }
+    isBonus: boolean
   }[]
 }
 
@@ -127,9 +130,8 @@ export default function PaymentsPage() {
         <div className="space-y-4">
           {payments.map((payment) => {
             const isProcessing = processingId === payment.id
-            const sortedNumbers = [...payment.paymentNumbers]
-              .map((pn) => pn.kujiNumber.number)
-              .sort((a, b) => a - b)
+            const paidNumbers  = payment.paymentNumbers.filter((pn) => !pn.isBonus).map((pn) => pn.kujiNumber.number).sort((a, b) => a - b)
+            const bonusNumbers = payment.paymentNumbers.filter((pn) => pn.isBonus).map((pn) => pn.kujiNumber.number).sort((a, b) => a - b)
 
             return (
               <Card key={payment.id}>
@@ -153,7 +155,10 @@ export default function PaymentsPage() {
                         <div>
                           <span className="text-gray-400">장수</span>{' '}
                           <span className="font-semibold text-gray-900">
-                            {payment.paymentNumbers.length}장
+                            {paidNumbers.length}장
+                            {bonusNumbers.length > 0 && (
+                              <span className="ml-1 text-amber-600">+{bonusNumbers.length} 보너스</span>
+                            )}
                           </span>
                         </div>
                         <div>
@@ -166,18 +171,31 @@ export default function PaymentsPage() {
                         </div>
                       </div>
                       {/* 선택된 번호 */}
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">선택 번호</p>
-                        <div className="flex flex-wrap gap-1">
-                          {sortedNumbers.map((num) => (
-                            <span
-                              key={num}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold"
-                            >
-                              {num}
-                            </span>
-                          ))}
+                      <div className="space-y-2">
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">선택 번호 ({paidNumbers.length}장)</p>
+                          <div className="flex flex-wrap gap-1">
+                            {paidNumbers.map((num) => (
+                              <span key={num} className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold">
+                                {num}
+                              </span>
+                            ))}
+                          </div>
                         </div>
+                        {bonusNumbers.length > 0 && (
+                          <div>
+                            <p className="text-xs text-amber-500 mb-1 flex items-center gap-1">
+                              <Gift size={11} /> 보너스 번호 ({bonusNumbers.length}장 무료)
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {bonusNumbers.map((num) => (
+                                <span key={num} className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold">
+                                  {num}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 

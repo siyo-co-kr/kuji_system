@@ -11,7 +11,7 @@ import { ImageUpload } from '@/components/ui/image-upload'
 import { formatPrice, formatDate } from '@/lib/utils'
 import {
   ArrowLeft, Play, StopCircle, Plus, Trash2,
-  Trophy, Hash, Loader2, ImageIcon, Shuffle
+  Trophy, Hash, Loader2, ImageIcon, Shuffle, Gift
 } from 'lucide-react'
 import type { Event, Prize, EventStats } from '@kuji/types'
 
@@ -20,6 +20,8 @@ const STATUS_VARIANT = { draft: 'default', active: 'success', closed: 'warning' 
 
 interface EventDetail extends Event {
   thumbnailUrl?: string | null
+  bonusEnabled?: boolean
+  bonusThreshold?: number
   prizes: (Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] })[]
 }
 
@@ -103,13 +105,24 @@ export default function EventDetailPage() {
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Badge variant={STATUS_VARIANT[event.status]}>{STATUS_LABEL[event.status]}</Badge>
+            {event.bonusEnabled && (
+              <span className="inline-flex items-center gap-1 text-sm bg-amber-100 text-amber-700 px-2.5 py-0.5 rounded-full font-semibold">
+                <Gift size={13} />
+                {event.bonusThreshold}+1 이벤트
+              </span>
+            )}
             <h1 className="text-2xl font-bold text-gray-900">{event.title}</h1>
           </div>
           {event.description && <p className="text-sm text-gray-500">{event.description}</p>}
           <p className="text-sm text-gray-500 mt-1">
             {formatPrice(event.pricePerUnit)} / 장 · 총 {event.totalCount.toLocaleString()}장
+            {event.bonusEnabled && (
+              <span className="ml-2 text-amber-600 text-xs font-medium">
+                ({event.bonusThreshold}장 구매마다 1장 무료)
+              </span>
+            )}
             <span className="ml-2 text-gray-400 text-xs">생성 {formatDate(event.createdAt)}</span>
           </p>
         </div>

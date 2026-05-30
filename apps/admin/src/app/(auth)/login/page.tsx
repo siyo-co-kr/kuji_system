@@ -26,7 +26,7 @@ export default function LoginPage() {
       if (account?.mustChangePassword) {
         router.replace('/change-password')
       } else {
-        router.replace('/events')
+        router.replace('/')
       }
     } catch {
       setError('이메일 또는 비밀번호가 올바르지 않습니다.')

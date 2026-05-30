@@ -12,6 +12,9 @@ import { eventRoutes } from './routes/events.js'
 import { prizeRoutes } from './routes/prizes.js'
 import { paymentRoutes } from './routes/payments.js'
 import { superadminRoutes } from './routes/superadmin.js'
+import { storeRoutes } from './routes/stores.js'
+import { noticeRoutes } from './routes/notices.js'
+import { dashboardRoutes } from './routes/dashboard.js'
 import { uploadRoutes } from './routes/upload.js'
 import { registerSocketHandlers } from './socket/index.js'
 
@@ -47,6 +50,9 @@ export async function buildApp() {
   await app.register(prizeRoutes, { prefix: '/api/prizes' })
   await app.register(paymentRoutes, { prefix: '/api/payments' })
   await app.register(superadminRoutes, { prefix: '/api/superadmin' })
+  await app.register(storeRoutes, { prefix: '/api/stores' })
+  await app.register(noticeRoutes, { prefix: '/api/notices' })
+  await app.register(dashboardRoutes, { prefix: '/api/dashboard' })
   await app.register(uploadRoutes, { prefix: '/api/upload' })
 
   app.ready(() => {

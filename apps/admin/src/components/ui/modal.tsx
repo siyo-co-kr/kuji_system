@@ -9,17 +9,28 @@ interface ModalProps {
   title?: string
   children: React.ReactNode
   className?: string
+  /** 모달이 열릴 때 호출 (데이터 초기 로드 등) */
+  onOpenChange?: () => void
 }
 
-export function Modal({ open, onClose, title, children, className }: ModalProps) {
+export function Modal({ open, onClose, title, children, className, onOpenChange }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const prevOpen = useRef(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) { prevOpen.current = false; return }
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // open이 false → true로 바뀔 때 onOpenChange 호출
+  useEffect(() => {
+    if (open && !prevOpen.current) {
+      prevOpen.current = true
+      onOpenChange?.()
+    }
+  }, [open, onOpenChange])
 
   if (!open) return null
 

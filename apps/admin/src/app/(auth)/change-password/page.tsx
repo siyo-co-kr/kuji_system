@@ -58,7 +58,7 @@ export default function ChangePasswordPage() {
 
       // 스토어에서 mustChangePassword 플래그 해제
       setAccount({ ...account, mustChangePassword: false })
-      router.replace('/events')
+      router.replace('/')
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??

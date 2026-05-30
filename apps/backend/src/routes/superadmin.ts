@@ -3,7 +3,7 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { sendTempPasswordEmail } from '../lib/email.js'
 
-/** 슈퍼 어드민 전용 미들웨어 — JWT 검증 + 역할 확인을 하나로 처리 */
+/** 슈퍼 어드민 전용 미들웨어 */
 async function requireSuperAdmin(
   request: Parameters<typeof import('../plugins/auth.js').requireAuth>[0],
   reply: Parameters<typeof import('../plugins/auth.js').requireAuth>[1]
@@ -30,36 +30,76 @@ const createAccountSchema = z.object({
 })
 
 export const superadminRoutes: FastifyPluginAsync = async (app) => {
-  // ── 전체 매장 목록 + 이벤트 현황 ──────────────────────────
-  app.get('/stores', { preHandler: requireSuperAdmin }, async () => {
-    const stores = await app.prisma.store.findMany({
-      include: {
-        accounts: {
-          select: { id: true, email: true, role: true, isApproved: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
-        },
-        events: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            totalCount: true,
-            pricePerUnit: true,
-            createdAt: true,
-            _count: {
-              select: {
-                kujiNumbers: { where: { isDrawn: false } },
-                prizes: true,
+  // ── 전체 매장 목록 (슈퍼어드민 전용 매장 제외, 검색/페이징) ───────────────
+  app.get('/stores', { preHandler: requireSuperAdmin }, async (request) => {
+    const q = request.query as {
+      search?: string
+      page?: string
+      limit?: string
+    }
+    const search = q.search?.trim() ?? ''
+    const page  = Math.max(1, Number(q.page)  || 1)
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 20))
+    const skip  = (page - 1) * limit
+
+    // 검색 조건
+    const searchWhere = search
+      ? {
+          OR: [
+            { name:    { contains: search, mode: 'insensitive' as const } },
+            { address: { contains: search, mode: 'insensitive' as const } },
+            { phone:   { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}
+
+    // 슈퍼어드민 전용 매장 제외: admin 계정이 1개 이상 있는 매장만 표시
+    const baseWhere = {
+      ...searchWhere,
+      accounts: { some: { role: 'admin' as const } },
+    }
+
+    const [total, stores] = await Promise.all([
+      app.prisma.store.count({ where: baseWhere }),
+      app.prisma.store.findMany({
+        where: baseWhere,
+        include: {
+          accounts: {
+            where: { role: 'admin' },
+            select: {
+              id: true, email: true, role: true,
+              isApproved: true, mustChangePassword: true, createdAt: true,
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+          events: {
+            where: { deletedAt: null },
+            select: {
+              id: true, title: true, status: true,
+              totalCount: true, pricePerUnit: true, createdAt: true,
+              _count: {
+                select: { kujiNumbers: { where: { isDrawn: false } }, prizes: true },
               },
             },
+            orderBy: { createdAt: 'desc' },
           },
-          orderBy: { createdAt: 'desc' },
+          _count: { select: { events: true } },
         },
-        _count: { select: { events: true } },
+        orderBy: { createdAt: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ])
+
+    return {
+      data: stores,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
-      orderBy: { createdAt: 'asc' },
-    })
-    return stores
+    }
   })
 
   // ── 승인 대기 계정 목록 ───────────────────────────────────
@@ -80,11 +120,10 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  // ── 계정 생성 (이메일 + 매장명 → 임시 비밀번호 발급 + 메일 발송) ──
+  // ── 계정 생성 ─────────────────────────────────────────────
   app.post('/accounts', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const body = createAccountSchema.parse(request.body)
 
-    // 이메일 중복 확인
     const existing = await app.prisma.account.findUnique({ where: { email: body.email } })
     if (existing) {
       return reply.status(409).send({ error: '이미 등록된 이메일입니다.' })
@@ -93,11 +132,8 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
     const tempPassword = generateTempPassword()
     const passwordHash = await bcrypt.hash(tempPassword, 10)
 
-    // 매장 생성 + 계정 생성을 트랜잭션으로 처리
     const account = await app.prisma.$transaction(async (tx) => {
-      const store = await tx.store.create({
-        data: { name: body.storeName },
-      })
+      const store = await tx.store.create({ data: { name: body.storeName } })
       return tx.account.create({
         data: {
           storeId: store.id,
@@ -111,17 +147,22 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
       })
     })
 
-    // 이메일 발송 (실패해도 계정은 유지)
+    // 이메일 발송
+    let emailSent = false
     try {
       await sendTempPasswordEmail(body.email, tempPassword)
+      emailSent = true
     } catch (err) {
       app.log.error({ err }, 'Failed to send temp password email')
     }
 
     return reply.status(201).send({
-      message: `${body.email} 계정이 생성됐습니다.`,
+      message: emailSent
+        ? `${body.email} 계정이 생성됐습니다. 임시 비밀번호를 이메일로 발송했습니다.`
+        : `${body.email} 계정이 생성됐습니다. (이메일 발송 실패 — 임시 비밀번호를 직접 전달해 주세요)`,
       account,
-      tempPassword, // 이메일 발송 실패 시 화면에서 확인 가능하도록 반환
+      tempPassword,
+      emailSent,
     })
   })
 
@@ -137,15 +178,20 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
       data: { passwordHash, mustChangePassword: true },
     })
 
+    let emailSent = false
     try {
       await sendTempPasswordEmail(account.email, tempPassword)
+      emailSent = true
     } catch (err) {
       app.log.error({ err }, 'Failed to send temp password email')
     }
 
     return reply.send({
-      message: `${account.email} 으로 임시 비밀번호를 발송했습니다.`,
+      message: emailSent
+        ? `${account.email} 으로 임시 비밀번호를 발송했습니다.`
+        : `임시 비밀번호 발급 완료 (이메일 발송 실패 — 직접 전달 필요)`,
       tempPassword,
+      emailSent,
     })
   })
 
@@ -153,7 +199,6 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
   app.post('/accounts/:id/approve', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string }
 
-    // mustChangePassword 가 true이면 승인 불가 (비밀번호 변경 미완료)
     const target = await app.prisma.account.findUniqueOrThrow({ where: { id } })
     if (target.mustChangePassword) {
       return reply.status(400).send({ error: '비밀번호 변경이 완료되지 않아 승인할 수 없습니다.' })
