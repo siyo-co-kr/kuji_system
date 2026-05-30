@@ -1,0 +1,14 @@
+# 로컬 개발용 — Redis만 실행
+# 사용법: docker compose -f docker-compose.dev.yml up -d
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis_dev_data:

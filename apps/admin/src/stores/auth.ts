@@ -2,17 +2,22 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { api } from '@/lib/api'
 
+import type { Role } from '@kuji/types'
+
 interface AuthStore {
   token: string | null
   account: {
     id: string
     email: string
-    role: string
+    role: Role
+    isApproved: boolean
+    mustChangePassword: boolean
     store: { id: string; name: string }
   } | null
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   isAuthenticated: () => boolean
+  setAccount: (account: AuthStore['account']) => void
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -31,6 +36,7 @@ export const useAuthStore = create<AuthStore>()(
         set({ token: null, account: null })
       },
       isAuthenticated: () => !!get().token,
+      setAccount: (account) => set({ account }),
     }),
     {
       name: 'kuji-auth',
