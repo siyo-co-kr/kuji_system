@@ -174,21 +174,30 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
       where: { id: numberId, eventId: id },
     })
     if (!kujiNumber) return reply.status(404).send({ error: 'Number not found' })
-    if (kujiNumber.isDrawn) return reply.status(400).send({ error: '이미 추첨된 번호입니다.' })
 
+    // 토글: 추첨 ↔ 미추첨
+    const newDrawn = !kujiNumber.isDrawn
     const updated = await app.prisma.kujiNumber.update({
       where: { id: numberId },
-      data: { isDrawn: true, drawnAt: new Date() },
+      data: {
+        isDrawn:  newDrawn,
+        drawnAt:  newDrawn ? new Date() : null,
+      },
     })
 
-    // 디스플레이 앱이 payment:confirmed 를 수신하여 번호를 업데이트함
-    app.io.to(`event:${id}`).emit('payment:confirmed', {
-      paymentId: null,
-      eventId: id,
-      numbers: [updated],
-    })
+    if (newDrawn) {
+      // 추첨 → 빠른 in-place 업데이트
+      app.io.to(`event:${id}`).emit('payment:confirmed', {
+        paymentId: null,
+        eventId: id,
+        numbers: [updated],
+      })
+    } else {
+      // 취소 → 전체 갱신 (통계·경품 현황까지 정확히 반영)
+      app.io.to(`event:${id}`).emit('event:updated', { eventId: id })
+    }
 
-    return updated
+    return { ...updated, toggled: newDrawn ? 'drawn' : 'undrawn' }
   })
 
   // ── 디스플레이 노출 설정 ──────────────────────────────────

@@ -95,8 +95,8 @@ export default function EventSlot({ slot, displayMode }: Props) {
           </div>
         </div>
 
-        {/* 중단: 번호 그리드 or 게이지 — flex-1로 남은 공간 채움, overflow-hidden */}
-        <div className="flex-1 min-h-0 overflow-hidden p-2">
+        {/* 중단: 번호 그리드 or 게이지 */}
+        <div className="flex-1 min-h-0 overflow-auto scrollbar-hide p-2">
           {displayMode === 'gauge' ? (
             <GaugeDisplay stats={stats} winProbability={winProbability} />
           ) : (

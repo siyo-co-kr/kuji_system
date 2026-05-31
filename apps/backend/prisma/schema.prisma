@@ -173,11 +173,11 @@ enum PaymentStatus {
 // ── 디스플레이 레이아웃 ──────────────────────────────────────
 
 model DisplayLayout {
-  id          String   @id @default(uuid())
-  storeId     String   @unique @map("store_id")
-  slots       Int      @default(2)
-  displayMode String   @default("grid") @map("display_mode")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  storeId   String   @unique @map("store_id")
+  slots     Int      @default(2)
+  viewMode  String   @default("multi") @map("view_mode")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   store      Store          @relation(fields: [storeId], references: [id])
   slotEvents DisplaySlot[]

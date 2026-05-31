@@ -39,7 +39,8 @@ export default function EventDetailPage() {
   const [numbers, setNumbers] = useState<KujiNumberSimple[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddPrize, setShowAddPrize] = useState(false)
-  const [editingPrize, setEditingPrize] = useState<Prize | null>(null)
+  type PrizeWithNumbers = Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] }
+  const [editingPrize, setEditingPrize] = useState<PrizeWithNumbers | null>(null)
   const [showEditEvent, setShowEditEvent] = useState(false)
   const [statusLoading, setStatusLoading] = useState(false)
   const [visibilityLoading, setVisibilityLoading] = useState(false)
@@ -73,11 +74,15 @@ export default function EventDetailPage() {
       // 번호 그리드 업데이트
       setNumbers((prev) => prev.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n))
 
-      // 통계 업데이트
-      setStats((prev) => prev
-        ? { ...prev, remainingCount: Math.max(0, prev.remainingCount - drawnNumbers.length) }
-        : prev
-      )
+      // 통계 업데이트 (번호 + 경품 잔여 수 동시 반영)
+      const prizeDrawnCount = numbers.filter(
+        (n) => drawnIds.has(n.id) && assignedNumberIds.has(n.id) && !n.isDrawn
+      ).length
+      setStats((prev) => prev ? {
+        ...prev,
+        remainingCount:      Math.max(0, prev.remainingCount - drawnNumbers.length),
+        remainingPrizeCount: Math.max(0, prev.remainingPrizeCount - prizeDrawnCount),
+      } : prev)
 
       // 경품 현황 업데이트 (prizeNumbers 안의 isDrawn 반영)
       setEvent((prev) => {
@@ -312,7 +317,7 @@ export default function EventDetailPage() {
                       </Badge>
                       {/* 수정 버튼 */}
                       <button
-                        onClick={() => setEditingPrize(prize)}
+                        onClick={() => setEditingPrize(prize as PrizeWithNumbers)}
                         className="text-gray-400 hover:text-indigo-500 transition-colors"
                         title="경품 수정"
                       >
@@ -339,29 +344,36 @@ export default function EventDetailPage() {
               <Hash size={16} className="text-indigo-500" />
               번호 현황
               {event.status === 'active' && (
-                <span className="text-xs font-normal text-gray-400 ml-1">(클릭 시 추첨)</span>
+                <span className="text-xs font-normal text-gray-400 ml-1">(클릭으로 추첨/취소)</span>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-1.5 max-h-72 overflow-y-auto">
               {numbers.map((n) => {
-                const isPrize = assignedNumberIds.has(n.id)
+                const isPrize  = assignedNumberIds.has(n.id)
                 const isDrawing = drawingId === n.id
-                const canDraw = event.status === 'active' && !n.isDrawn
+                const canToggle = event.status === 'active'
 
                 return (
                   <button
                     key={n.id}
                     type="button"
-                    disabled={!canDraw || !!drawingId}
-                    onClick={() => canDraw && drawNumber(n.id)}
+                    disabled={!canToggle || !!drawingId}
+                    onClick={() => canToggle && drawNumber(n.id)}
+                    title={canToggle ? (n.isDrawn ? '클릭하여 추첨 취소' : '클릭하여 추첨') : undefined}
                     className={`w-9 h-9 flex items-center justify-center rounded-lg text-xs font-semibold transition-all
-                      ${isDrawing ? 'animate-pulse bg-indigo-400 text-white' :
-                        n.isDrawn ? 'bg-gray-200 text-gray-400 line-through cursor-default' :
-                        isPrize   ? 'bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200' :
-                        canDraw   ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-200 cursor-pointer' :
-                                    'bg-indigo-50 text-indigo-700 cursor-default'
+                      ${isDrawing
+                        ? 'animate-pulse bg-indigo-400 text-white'
+                        : n.isDrawn
+                        ? canToggle
+                          ? 'bg-gray-200 text-gray-400 line-through hover:bg-red-100 hover:text-red-500 hover:no-underline cursor-pointer'
+                          : 'bg-gray-200 text-gray-400 line-through cursor-default'
+                        : isPrize
+                        ? 'bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 cursor-pointer'
+                        : canToggle
+                        ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-200 cursor-pointer'
+                        : 'bg-indigo-50 text-indigo-700 cursor-default'
                       }`}
                   >
                     {n.number}
@@ -400,6 +412,8 @@ export default function EventDetailPage() {
       {editingPrize && (
         <EditPrizeModal
           prize={editingPrize}
+          allNumbers={numbers}
+          assignedNumberIds={assignedNumberIds}
           onClose={() => setEditingPrize(null)}
           onSaved={() => { setEditingPrize(null); fetchAll() }}
         />
@@ -435,23 +449,45 @@ function StatCard({ label, value, unit, highlight }: {
 
 // ── 경품 수정 모달 ─────────────────────────────────────────────
 function EditPrizeModal({
-  prize, onClose, onSaved,
+  prize, allNumbers, assignedNumberIds, onClose, onSaved,
 }: {
-  prize: Prize
+  prize: Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] }
+  allNumbers: KujiNumberSimple[]
+  assignedNumberIds: Set<string>
   onClose: () => void
   onSaved: () => void
 }) {
+  // 이 경품에 현재 배정된 번호 ID
+  const initialNumberIds = prize.prizeNumbers.map((pn) => pn.kujiNumber.id)
+
   const [name, setName] = useState(prize.name)
   const [description, setDescription] = useState(prize.description ?? '')
+  const [imageUrl, setImageUrl] = useState(prize.images?.[0]?.imageUrl ?? '')
+  const [selectedIds, setSelectedIds] = useState<string[]>(initialNumberIds)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // 선택 가능 번호 = 이 경품의 번호 + 아직 미배정 번호 (다른 경품 번호 제외)
+  const otherPrizeIds = new Set([...assignedNumberIds].filter((id) => !initialNumberIds.includes(id)))
+  const availableNumbers = allNumbers.filter((n) => !otherPrizeIds.has(n.id))
+
+  const toggleId = (id: string) =>
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) { setError('경품명을 입력해주세요.'); return }
+    if (selectedIds.length === 0) { setError('번호를 1개 이상 선택해주세요.'); return }
     setLoading(true)
     try {
-      await api.patch(`/prizes/${prize.id}`, { name, description: description || undefined })
+      await api.patch(`/prizes/${prize.id}`, {
+        name,
+        description: description || null,
+        imageUrl:    imageUrl || null,
+        numberIds:   selectedIds,
+      })
       onSaved()
     } catch {
       setError('수정에 실패했습니다.')
@@ -461,13 +497,62 @@ function EditPrizeModal({
   }
 
   return (
-    <Modal open onClose={onClose} title="경품 수정" className="max-w-sm">
+    <Modal open onClose={onClose} title="경품 수정" className="max-w-lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input label="경품명 *" value={name}
-          onChange={(e) => setName(e.target.value)} required />
-        <Input label="설명 (선택)" value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="경품 설명" />
+        {/* 이미지 + 기본 정보 */}
+        <div className="flex gap-4 items-start">
+          <ImageUpload label="이미지" value={imageUrl} onChange={setImageUrl} />
+          <div className="flex-1 space-y-3">
+            <Input label="경품명 *" value={name}
+              onChange={(e) => setName(e.target.value)} required />
+            <Input label="설명 (선택)" value={description} placeholder="경품 설명"
+              onChange={(e) => setDescription(e.target.value)} />
+          </div>
+        </div>
+
+        {/* 번호 선택 */}
+        <div>
+          <p className="text-sm font-medium text-gray-700 mb-2">
+            당첨 번호
+            <span className="ml-1 text-gray-400 font-normal text-xs">
+              ({selectedIds.length}개 선택 / 선택 가능 {availableNumbers.length}개)
+            </span>
+          </p>
+          {availableNumbers.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2">배정 가능한 번호가 없습니다</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto p-1 border border-gray-100 rounded-lg bg-gray-50">
+              {availableNumbers.map((n) => {
+                const isSelected = selectedIds.includes(n.id)
+                const isCurrentPrize = initialNumberIds.includes(n.id)
+                return (
+                  <button key={n.id} type="button" onClick={() => toggleId(n.id)}
+                    title={isCurrentPrize ? '현재 배정된 번호' : '추가 가능'}
+                    className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : isCurrentPrize
+                        ? 'bg-amber-100 text-amber-700 border border-amber-300 hover:bg-indigo-50'
+                        : 'bg-white text-gray-700 hover:bg-indigo-50 border border-gray-200'
+                    }`}>
+                    {n.number}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex gap-4 mt-1.5 text-xs text-gray-400">
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block" />
+              현재 배정됨
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-indigo-600 inline-block" />
+              선택됨
+            </span>
+          </div>
+        </div>
+
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2 pt-1">
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>

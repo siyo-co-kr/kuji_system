@@ -3,15 +3,17 @@ import type { SlotStats } from '../pages/DisplayPage'
 interface Props {
   stats: SlotStats
   winProbability: number
+  /** compact=true: 멀티뷰 슬롯용 (작은 높이) */
+  compact?: boolean
 }
 
-export default function GaugeDisplay({ stats, winProbability }: Props) {
+export default function GaugeDisplay({ stats, winProbability, compact = false }: Props) {
   const drawnCount  = stats.totalCount - stats.remainingCount
   const drawnPercent = stats.totalCount > 0 ? drawnCount / stats.totalCount * 100 : 0
   const prizePercent = Math.min(winProbability, 100)
 
   return (
-    <div className="h-full flex flex-col justify-center gap-4 px-2 py-3">
+    <div className={`h-full flex flex-col justify-center ${compact ? 'gap-2 px-1 py-1' : 'gap-4 px-2 py-3'}`}>
       {/* 추첨 진행률 게이지 */}
       <div>
         <div className="flex justify-between text-xs mb-1">
@@ -20,15 +22,15 @@ export default function GaugeDisplay({ stats, winProbability }: Props) {
             {drawnCount} / {stats.totalCount}
           </span>
         </div>
-        <div className="h-4 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`${compact ? 'h-2.5' : 'h-4'} bg-gray-800 rounded-full overflow-hidden`}>
           <div
             className="h-full bg-gradient-to-r from-indigo-700 to-indigo-400 rounded-full transition-all duration-700"
             style={{ width: `${drawnPercent}%` }}
           />
         </div>
-        <p className="text-right text-xs text-gray-600 mt-0.5">
+        {!compact && <p className="text-right text-xs text-gray-600 mt-0.5">
           {drawnPercent.toFixed(0)}% 추첨됨
-        </p>
+        </p>}
       </div>
 
       {/* 당첨 확률 게이지 */}
@@ -39,7 +41,7 @@ export default function GaugeDisplay({ stats, winProbability }: Props) {
             {winProbability.toFixed(1)}%
           </span>
         </div>
-        <div className="h-4 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`${compact ? 'h-2.5' : 'h-4'} bg-gray-800 rounded-full overflow-hidden`}>
           <div
             className="h-full bg-gradient-to-r from-amber-700 to-amber-400 rounded-full transition-all duration-700"
             style={{ width: `${prizePercent}%` }}

@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { connectSocket, getSocket } from '../lib/socket'
 import { useAuthStore } from '../stores/auth'
-import EventSlot from '../components/EventSlot'
+import MultiView from '../components/MultiView'
+import SingleView from '../components/SingleView'
 
 export interface SlotNumber { id: string; number: number; isDrawn: boolean; isPrize: boolean }
 export interface SlotPrize {
@@ -28,39 +29,32 @@ export interface SlotData {
   numbers: SlotNumber[]
 }
 
-/** CSS grid columns 클래스 */
-function getGridCols(slots: number) {
-  switch (slots) {
-    case 2: return 'grid-cols-2'
-    case 3: return 'grid-cols-3'
-    case 4: return 'grid-cols-2'
-    case 6: return 'grid-cols-3'
-    default: return 'grid-cols-2'
-  }
-}
-
-/** 1행인지 2행인지 */
-function isOneRow(slots: number) { return slots === 2 || slots === 3 }
-
 export default function DisplayPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { account, logout } = useAuthStore()
+
+  const [viewMode, setViewMode] = useState<'multi' | 'single'>('multi')
   const [slotCount, setSlotCount] = useState(2)
-  const [displayMode, setDisplayMode] = useState<'grid' | 'gauge'>('grid')
   const [slotData, setSlotData] = useState<SlotData[]>([])
   const [loading, setLoading] = useState(true)
   const joinedRooms = useRef<Set<string>>(new Set())
 
+  // URL의 ?slot=N 파라미터 (싱글뷰에서 기기별 지정)
+  const slotParam = searchParams.get('slot')
+  const slotIndex = slotParam !== null ? parseInt(slotParam, 10) : null
+
   const fetchConfig = useCallback(async () => {
     try {
       const res = await api.get('/display-config')
+      setViewMode(res.data.viewMode ?? 'multi')
       setSlotCount(res.data.slots)
-      setDisplayMode(res.data.displayMode ?? 'grid')
       setSlotData(res.data.slotData)
 
       const socket = getSocket()
       joinedRooms.current.forEach((eid) => socket.emit('event:leave', eid))
       joinedRooms.current.clear()
+
       ;(res.data.slotData as SlotData[]).forEach((slot) => {
         if (slot.eventId && slot.event?.status === 'active') {
           socket.emit('event:join', slot.eventId)
@@ -79,19 +73,27 @@ export default function DisplayPage() {
     const socket = connectSocket()
     socket.emit('admin:join', account.store.id)
 
-    socket.on('display:config-updated', () => { fetchConfig() })
+    socket.on('display:config-updated', () => fetchConfig())
 
     socket.on('payment:confirmed', ({ eventId, numbers: drawn }) => {
       if (!eventId) return
       const drawnIds = new Set((drawn as { id: string }[]).map((n) => n.id))
       setSlotData((prev) => prev.map((slot) => {
         if (slot.eventId !== eventId) return slot
+
+        // 추첨된 번호 중 경품 번호 수 계산 → remainingPrizeCount 감소
+        const prizeDrawnCount = slot.numbers.filter(
+          (n) => drawnIds.has(n.id) && n.isPrize && !n.isDrawn
+        ).length
+
         return {
           ...slot,
           numbers: slot.numbers.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n),
-          stats: slot.stats
-            ? { ...slot.stats, remainingCount: Math.max(0, slot.stats.remainingCount - drawn.length) }
-            : null,
+          stats: slot.stats ? {
+            ...slot.stats,
+            remainingCount:      Math.max(0, slot.stats.remainingCount - drawn.length),
+            remainingPrizeCount: Math.max(0, slot.stats.remainingPrizeCount - prizeDrawnCount),
+          } : null,
           event: slot.event ? {
             ...slot.event,
             prizes: slot.event.prizes.map((p) => ({
@@ -107,7 +109,7 @@ export default function DisplayPage() {
       }))
     })
 
-    socket.on('event:updated', () => { fetchConfig() })
+    socket.on('event:updated', () => fetchConfig())
 
     return () => {
       socket.off('display:config-updated')
@@ -117,50 +119,39 @@ export default function DisplayPage() {
     }
   }, [account, fetchConfig])
 
+  const handleLogout = () => { logout(); navigate('/login', { replace: true }) }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="h-screen bg-gray-950 flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
 
-  // 진행중 이벤트가 있는 슬롯만 표시 판단
-  const visibleSlots = slotData.filter((s) => s.event?.status === 'active')
-  const hasActive = visibleSlots.length > 0
-
-  const oneRow = isOneRow(slotCount)
+  // 싱글뷰: ?slot=N 파라미터가 있거나 viewMode === 'single'
+  const isSingle = viewMode === 'single' || slotIndex !== null
+  const targetSlot = isSingle
+    ? slotData.find((s) => s.slotIndex === (slotIndex ?? 0)) ?? null
+    : null
 
   return (
     <div className="h-screen bg-gray-950 text-white flex flex-col overflow-hidden">
-      {/* 상단 바 — 매장명만 표시 */}
+      {/* 상단 바 */}
       <header className="flex-shrink-0 flex items-center justify-between px-6 h-12 border-b border-gray-800">
         <span className="text-base font-bold text-gray-100">{account?.store.name}</span>
-        <button onClick={() => { logout(); navigate('/login', { replace: true }) }}
+        <button onClick={handleLogout}
           className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
           로그아웃
         </button>
       </header>
 
-      {/* 메인 그리드 */}
-      <main className="flex-1 min-h-0 p-3">
-        {!hasActive ? (
-          <div className="h-full flex flex-col items-center justify-center text-gray-700">
-            <p className="text-5xl mb-4">📺</p>
-            <p>표시할 진행중 이벤트가 없습니다</p>
-          </div>
+      {/* 메인 콘텐츠 */}
+      <main className="flex-1 min-h-0">
+        {isSingle ? (
+          <SingleView slot={targetSlot} />
         ) : (
-          <div className={`grid ${getGridCols(slotCount)} gap-3 h-full`}
-               style={{ gridTemplateRows: oneRow ? '1fr' : '1fr 1fr' }}>
-            {slotData.map((slot) => (
-              <EventSlot
-                key={slot.slotIndex}
-                slot={slot}
-                displayMode={displayMode}
-                oneRow={oneRow}
-              />
-            ))}
-          </div>
+          <MultiView slotCount={slotCount} slotData={slotData} />
         )}
       </main>
     </div>
