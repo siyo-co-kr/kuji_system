@@ -75,7 +75,7 @@ export default function DisplayPage() {
 
     socket.on('display:config-updated', () => fetchConfig())
 
-    socket.on('payment:confirmed', ({ eventId, numbers: drawn }) => {
+    socket.on('number:drawn', ({ eventId, numbers: drawn }) => {
       if (!eventId) return
       const drawnIds = new Set((drawn as { id: string }[]).map((n) => n.id))
       setSlotData((prev) => prev.map((slot) => {
@@ -113,7 +113,7 @@ export default function DisplayPage() {
 
     return () => {
       socket.off('display:config-updated')
-      socket.off('payment:confirmed')
+      socket.off('number:drawn')
       socket.off('event:updated')
       joinedRooms.current.forEach((eid) => socket.emit('event:leave', eid))
     }

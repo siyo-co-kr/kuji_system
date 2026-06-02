@@ -16,29 +16,28 @@ model Store {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  accounts          Account[]
-  events            Event[]
-  payments          Payment[]
+  accounts               Account[]
+  events                 Event[]
   prizeCatalogCategories PrizeCatalogCategory[]
-  prizeCatalog      PrizeCatalog[]
-  displayLayout     DisplayLayout?
+  prizeCatalog           PrizeCatalog[]
+  displayLayout          DisplayLayout?
 
   @@map("stores")
 }
 
 model Account {
-  id           String   @id @default(uuid())
-  storeId      String   @map("store_id")
-  email        String   @unique
-  passwordHash String   @map("password_hash")
+  id                 String   @id @default(uuid())
+  storeId            String   @map("store_id")
+  email              String   @unique
+  passwordHash       String   @map("password_hash")
   role               Role     @default(admin)
   isApproved         Boolean  @default(false) @map("is_approved")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   createdAt          DateTime @default(now()) @map("created_at")
 
-  store             Store     @relation(fields: [storeId], references: [id])
-  confirmedPayments Payment[] @relation("ConfirmedBy")
+  store Store @relation(fields: [storeId], references: [id])
 
+  @@index([storeId])
   @@map("accounts")
 }
 
@@ -48,28 +47,30 @@ enum Role {
 }
 
 model Event {
-  id           String      @id @default(uuid())
-  storeId      String      @map("store_id")
-  title        String
-  description  String?
-  thumbnailUrl String?     @map("thumbnail_url")
-  totalCount    Int         @map("total_count")
-  pricePerUnit  Int         @map("price_per_unit")
+  id             String      @id @default(uuid())
+  storeId        String      @map("store_id")
+  title          String
+  description    String?
+  thumbnailUrl   String?     @map("thumbnail_url")
+  totalCount     Int         @map("total_count")
+  pricePerUnit   Int         @map("price_per_unit")
   bonusEnabled   Boolean     @default(false) @map("bonus_enabled")
   bonusThreshold Int         @default(10)    @map("bonus_threshold")
   isVisible      Boolean     @default(false) @map("is_visible")
   status         EventStatus @default(draft)
-  startedAt     DateTime?   @map("started_at")
-  endedAt       DateTime?   @map("ended_at")
-  deletedAt     DateTime?   @map("deleted_at")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  startedAt      DateTime?   @map("started_at")
+  endedAt        DateTime?   @map("ended_at")
+  deletedAt      DateTime?   @map("deleted_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt      @map("updated_at")
 
   store       Store        @relation(fields: [storeId], references: [id])
   kujiNumbers KujiNumber[]
   prizes      Prize[]
-  payments    Payment[]
 
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([deletedAt])
   @@map("events")
 }
 
@@ -88,11 +89,13 @@ model KujiNumber {
   drawnAt   DateTime? @map("drawn_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  event          Event          @relation(fields: [eventId], references: [id])
-  prizeNumber    PrizeNumber?
-  paymentNumbers PaymentNumber[]
+  event       Event        @relation(fields: [eventId], references: [id])
+  prizeNumber PrizeNumber?
 
   @@unique([eventId, number])
+  @@index([eventId])
+  @@index([eventId, isDrawn])
+  @@index([eventId, isPrize])
   @@map("kuji_numbers")
 }
 
@@ -103,12 +106,13 @@ model Prize {
   description String?
   quantity    Int      @default(1)
   createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
 
   event        Event         @relation(fields: [eventId], references: [id])
   images       PrizeImage[]
   prizeNumbers PrizeNumber[]
 
+  @@index([eventId])
   @@map("prizes")
 }
 
@@ -121,6 +125,7 @@ model PrizeImage {
 
   prize Prize @relation(fields: [prizeId], references: [id])
 
+  @@index([prizeId])
   @@map("prize_images")
 }
 
@@ -132,42 +137,8 @@ model PrizeNumber {
   prize      Prize      @relation(fields: [prizeId], references: [id])
   kujiNumber KujiNumber @relation(fields: [kujiNumberId], references: [id])
 
+  @@index([prizeId])
   @@map("prize_numbers")
-}
-
-model Payment {
-  id              String        @id @default(uuid())
-  eventId         String        @map("event_id")
-  storeId         String        @map("store_id")
-  totalAmount     Int           @map("total_amount")
-  paidCount       Int           @default(0)   @map("paid_count")
-  bonusCount      Int           @default(0)   @map("bonus_count")
-  method          PaymentMethod
-  status          PaymentStatus @default(pending)
-  pgTransactionId String?       @map("pg_transaction_id")
-  requestedAt     DateTime      @default(now()) @map("requested_at")
-  confirmedAt     DateTime?     @map("confirmed_at")
-  confirmedById   String?       @map("confirmed_by_id")
-  createdAt       DateTime      @default(now()) @map("created_at")
-
-  event          Event           @relation(fields: [eventId], references: [id])
-  store          Store           @relation(fields: [storeId], references: [id])
-  confirmedBy    Account?        @relation("ConfirmedBy", fields: [confirmedById], references: [id])
-  paymentNumbers PaymentNumber[]
-
-  @@map("payments")
-}
-
-enum PaymentMethod {
-  app_simple
-  app_card
-  manual
-}
-
-enum PaymentStatus {
-  pending
-  confirmed
-  cancelled
 }
 
 // ── 디스플레이 레이아웃 ──────────────────────────────────────
@@ -179,7 +150,7 @@ model DisplayLayout {
   viewMode  String   @default("multi") @map("view_mode")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  store      Store          @relation(fields: [storeId], references: [id])
+  store      Store         @relation(fields: [storeId], references: [id])
   slotEvents DisplaySlot[]
 
   @@map("display_layouts")
@@ -194,6 +165,7 @@ model DisplaySlot {
   layout DisplayLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
 
   @@unique([layoutId, slotIndex])
+  @@index([layoutId])
   @@map("display_slots")
 }
 
@@ -204,11 +176,12 @@ model PrizeCatalogCategory {
   storeId   String   @map("store_id")
   name      String
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
 
   store  Store          @relation(fields: [storeId], references: [id])
   prizes PrizeCatalog[]
 
+  @@index([storeId])
   @@map("prize_catalog_categories")
 }
 
@@ -220,11 +193,13 @@ model PrizeCatalog {
   description String?
   imageUrl    String?  @map("image_url")
   createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
 
-  store    Store                  @relation(fields: [storeId], references: [id])
-  category PrizeCatalogCategory?  @relation(fields: [categoryId], references: [id])
+  store    Store                 @relation(fields: [storeId], references: [id])
+  category PrizeCatalogCategory? @relation(fields: [categoryId], references: [id])
 
+  @@index([storeId])
+  @@index([categoryId])
   @@map("prize_catalog")
 }
 
@@ -234,19 +209,7 @@ model Notice {
   content   String
   isPinned  Boolean  @default(false) @map("is_pinned")
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
 
   @@map("notices")
-}
-
-model PaymentNumber {
-  id           String  @id @default(uuid())
-  paymentId    String  @map("payment_id")
-  kujiNumberId String  @unique @map("kuji_number_id")
-  isBonus      Boolean @default(false) @map("is_bonus")
-
-  payment    Payment    @relation(fields: [paymentId], references: [id])
-  kujiNumber KujiNumber @relation(fields: [kujiNumberId], references: [id])
-
-  @@map("payment_numbers")
 }

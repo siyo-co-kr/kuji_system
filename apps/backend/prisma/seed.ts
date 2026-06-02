@@ -55,18 +55,10 @@ async function main() {
     },
   })
 
-  console.log('\n✅ 시드 완료\n')
-  console.log('  [슈퍼 어드민]')
-  console.log(`   이메일: ${siyoAccount.email}`)
-  console.log(`   비밀번호: Siyo98031!`)
-  console.log(`   역할: ${siyoAccount.role} | 승인: ${siyoAccount.isApproved}`)
-  console.log(`   매장: ${siyoStore.name}`)
-  console.log()
-  console.log('  [일반 어드민 - 승인 대기]')
-  console.log(`   이메일: ${testAccount.email}`)
-  console.log(`   비밀번호: test98031!`)
-  console.log(`   역할: ${testAccount.role} | 승인: ${testAccount.isApproved}`)
-  console.log(`   매장: ${testStore.name}`)
+  // 비밀번호는 로그에 출력하지 않음 (보안)
+  console.log('\n✅ 시드 완료')
+  console.log(`  슈퍼 어드민: ${siyoAccount.email} (${siyoStore.name})`)
+  console.log(`  일반 어드민: ${testAccount.email} (${testStore.name}) — 승인 대기`)
 }
 
 main()

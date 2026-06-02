@@ -14,6 +14,9 @@ export function getSocket() {
 
 export function connectSocket() {
   const s = getSocket()
+  // 연결 시 최신 JWT 토큰을 auth에 설정
+  const token = localStorage.getItem('display-token') ?? ''
+  s.auth = { token }
   if (!s.connected) s.connect()
   return s
 }

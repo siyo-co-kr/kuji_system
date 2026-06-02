@@ -1,12 +1,10 @@
-import type { Payment } from './payment'
 import type { KujiNumber } from './event'
 
 export interface ServerToClientEvents {
-  'payment:pending':   (data: { paymentId: string; payment: Payment }) => void
-  'payment:confirmed': (data: { paymentId: string | null; eventId: string; numbers: KujiNumber[] }) => void
-  'payment:cancelled': (data: { paymentId: string }) => void
-  'event:updated':     (data: { eventId: string }) => void
-  'event:closed':      (data: { eventId: string }) => void
+  /** 번호 추첨 (수동 추첨 또는 기타) */
+  'number:drawn':           (data: { eventId: string; numbers: KujiNumber[] }) => void
+  'event:updated':          (data: { eventId: string }) => void
+  'event:closed':           (data: { eventId: string }) => void
   'display:config-updated': (data: { storeId: string }) => void
 }
 

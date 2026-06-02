@@ -68,7 +68,7 @@ export default function EventDetailPage() {
     socket.emit('event:join', id)
 
     // 번호가 추첨됐을 때 (수동 추첨 또는 결제 승인)
-    socket.on('payment:confirmed', ({ numbers: drawnNumbers }) => {
+    socket.on('number:drawn', ({ numbers: drawnNumbers }) => {
       const drawnIds = new Set((drawnNumbers as { id: string }[]).map((n) => n.id))
 
       // 번호 그리드 업데이트
@@ -105,7 +105,7 @@ export default function EventDetailPage() {
 
     return () => {
       const s = getSocket()
-      s.off('payment:confirmed')
+      s.off('number:drawn')
       s.off('event:updated')
       s.emit('event:leave', id)
       disconnectSocket()

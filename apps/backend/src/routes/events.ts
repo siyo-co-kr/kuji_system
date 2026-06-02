@@ -186,16 +186,11 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     })
 
     if (newDrawn) {
-      // 추첨 → 빠른 in-place 업데이트
-      app.io.to(`event:${id}`).emit('payment:confirmed', {
-        paymentId: null,
-        eventId: id,
-        numbers: [updated],
-      })
+      app.io.to(`event:${id}`).emit('number:drawn', { eventId: id, numbers: [updated] })
     } else {
-      // 취소 → 전체 갱신 (통계·경품 현황까지 정확히 반영)
       app.io.to(`event:${id}`).emit('event:updated', { eventId: id })
     }
+    app.log.info({ eventId: id, numberId, number: updated.number, isDrawn: newDrawn }, `번호 수동 ${newDrawn ? '추첨' : '추첨 취소'}`)
 
     return { ...updated, toggled: newDrawn ? 'drawn' : 'undrawn' }
   })

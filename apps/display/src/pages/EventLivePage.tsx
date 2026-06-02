@@ -88,7 +88,7 @@ export default function EventLivePage() {
     socket.emit('event:join', id)
 
     // 결제 확인 → 번호 + 경품 in-place 업데이트
-    socket.on('payment:confirmed', ({ numbers: drawnNumbers }) => {
+    socket.on('number:drawn', ({ numbers: drawnNumbers }) => {
       const drawnIds = new Set(drawnNumbers.map((n: { id: string }) => n.id))
 
       // 번호 그리드 업데이트
@@ -127,7 +127,7 @@ export default function EventLivePage() {
     return () => {
       const s = getSocket()
       s.emit('event:leave', id)
-      s.off('payment:confirmed')
+      s.off('number:drawn')
       s.off('event:updated')
       disconnectSocket()
     }

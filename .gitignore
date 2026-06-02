@@ -32,8 +32,8 @@ Thumbs.db
 # Turbo
 .turbo/
 
-# Prisma
-prisma/migrations/
+# Prisma — 마이그레이션 파일은 버전 관리 (스키마 변경 이력 추적)
+# prisma/migrations/  ← 주석 처리: 이제 Git에 포함
 
 # Expo
 .expo/

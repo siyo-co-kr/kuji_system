@@ -1,22 +1,8 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
+import { requireSuperAdmin } from '../plugins/auth.js'
 import { sendTempPasswordEmail } from '../lib/email.js'
-
-/** 슈퍼 어드민 전용 미들웨어 */
-async function requireSuperAdmin(
-  request: Parameters<typeof import('../plugins/auth.js').requireAuth>[0],
-  reply: Parameters<typeof import('../plugins/auth.js').requireAuth>[1]
-) {
-  try {
-    await request.jwtVerify()
-  } catch {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
-  if (request.user?.role !== 'superadmin') {
-    return reply.status(403).send({ error: '슈퍼 어드민 권한이 필요합니다.' })
-  }
-}
 
 /** 랜덤 임시 비밀번호 생성 (8자: 영문+숫자) */
 function generateTempPassword(): string {
@@ -209,7 +195,8 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
       data: { isApproved: true },
       include: { store: { select: { name: true } } },
     })
-    return reply.send({ message: `${account.email} 계정이 승인됐습니다.`, account })
+    app.log.info({ targetAccountId: id, email: account.email }, '계정 승인')
+    return reply.send({ result: `${account.email} 계정이 승인됐습니다.`, account })
   })
 
   // ── 계정 거절 (비활성화) ──────────────────────────────────
@@ -220,7 +207,8 @@ export const superadminRoutes: FastifyPluginAsync = async (app) => {
       data: { isApproved: false },
       include: { store: { select: { name: true } } },
     })
-    return reply.send({ message: `${account.email} 계정이 비활성화됐습니다.`, account })
+    app.log.info({ targetAccountId: id, email: account.email }, '계정 비활성화')
+    return reply.send({ result: `${account.email} 계정이 비활성화됐습니다.`, account })
   })
 
   // ── 계정 삭제 ─────────────────────────────────────────────

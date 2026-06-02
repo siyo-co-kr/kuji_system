@@ -67,9 +67,9 @@ function MultiSlot({ slot }: { slot: SlotData }) {
     <>
       <div className="bg-gray-900 rounded-2xl border border-gray-800 flex overflow-hidden min-h-0">
 
-        {/* ── 좌측: 썸네일 ── */}
-        <div className="flex-shrink-0 w-[22%] p-2.5">
-          <div className="w-full aspect-[2/3] rounded-xl overflow-hidden bg-gray-800 h-full max-h-full">
+        {/* ── 좌측: 썸네일 — 높이를 슬롯에 맞추고 너비는 1:1.5 비율 자동 계산 ── */}
+        <div className="flex-shrink-0 self-stretch p-3 flex items-stretch">
+          <div className="h-full aspect-[2/3] rounded-xl overflow-hidden bg-gray-800 flex-shrink-0">
             {event.thumbnailUrl
               ? <img src={event.thumbnailUrl} alt={event.title} className="w-full h-full object-cover" />
               : <div className="w-full h-full flex items-center justify-center text-3xl">🎲</div>}
@@ -79,23 +79,25 @@ function MultiSlot({ slot }: { slot: SlotData }) {
         {/* ── 우측: 컨텐츠 ── */}
         <div className="flex-1 min-w-0 flex flex-col p-2.5 gap-2 overflow-hidden">
 
-          {/* 이벤트명 + 뱃지 */}
-          <div className="flex-shrink-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="inline-flex items-center gap-1 text-xs font-bold text-white
-                bg-green-500 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                진행 중
-              </span>
-              {event.bonusEnabled && (
-                <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">
-                  {event.bonusThreshold}+1
-                </span>
-              )}
-            </div>
-            <h2 className="font-bold text-white text-sm leading-tight mt-1 line-clamp-1">
+          {/* 이벤트명 + 뱃지 — 이벤트명·10+1 왼쪽, 진행중 오른쪽 끝 */}
+          <div className="flex-shrink-0 flex items-center gap-[0.8vw] min-w-0">
+            <h2 className="font-bold text-white leading-tight line-clamp-1 min-w-0"
+                style={{ fontSize: '2.2vw' }}>
               {event.title}
             </h2>
+            {event.bonusEnabled && (
+              <span className="flex-shrink-0 bg-amber-500/20 text-amber-400 font-bold whitespace-nowrap rounded-full"
+                    style={{ fontSize: '1.5vw', padding: '0.2vw 0.6vw' }}>
+                {event.bonusThreshold}+1
+              </span>
+            )}
+            <div className="flex-1" />
+            <span className="flex-shrink-0 inline-flex items-center gap-[0.3vw] font-bold text-white bg-green-500 whitespace-nowrap rounded-full"
+                  style={{ fontSize: '1.1vw', padding: '0.25vw 0.7vw' }}>
+              <span className="rounded-full bg-white animate-pulse"
+                    style={{ width: '0.5vw', height: '0.5vw' }} />
+              진행 중
+            </span>
           </div>
 
           {/* 통계 3칸 (클릭 가능) */}
@@ -134,7 +136,7 @@ function MultiSlot({ slot }: { slot: SlotData }) {
           {/* 경품 카드 가로 스크롤 */}
           {event.prizes.length > 0 && (
             <div className="flex-1 min-h-0 flex flex-col">
-              <p className="text-xs text-gray-500 mb-1 flex-shrink-0">경품</p>
+              <p className="text-gray-500 flex-shrink-0" style={{ fontSize: '1vw', marginBottom: '0.3vw' }}>경품</p>
               <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
                 {event.prizes.map((prize) => (
                   <PrizeThumb
@@ -184,11 +186,12 @@ function StatBtn({ label, value, sub, color, onClick }: {
   return (
     <button
       onClick={onClick}
-      className="bg-gray-800 hover:bg-gray-700 active:scale-95 rounded-xl px-2 py-1.5 text-center transition-all"
+      className="bg-gray-800 hover:bg-gray-700 active:scale-95 rounded-xl text-center transition-all"
+      style={{ padding: '0.8vw 0.6vw' }}
     >
-      <p className="text-xs text-gray-500 leading-none mb-0.5">{label}</p>
-      <p className={`text-lg font-bold tabular-nums leading-none ${color}`}>
-        {value}<span className="text-xs text-gray-600 font-normal">{sub}</span>
+      <p className="text-gray-400 leading-none font-medium" style={{ fontSize: '1.1vw', marginBottom: '0.4vw' }}>{label}</p>
+      <p className={`font-bold tabular-nums leading-none ${color}`} style={{ fontSize: '2.2vw' }}>
+        {value}<span className="text-gray-600 font-normal" style={{ fontSize: '1vw' }}>{sub}</span>
       </p>
     </button>
   )
@@ -197,11 +200,11 @@ function StatBtn({ label, value, sub, color, onClick }: {
 function GaugeBar({ label, pct, color }: { label: string; pct: number; color: string }) {
   return (
     <div>
-      <div className="flex justify-between text-xs text-gray-500 mb-0.5">
+      <div className="flex justify-between text-gray-500" style={{ fontSize: '1.1vw', marginBottom: '0.3vw' }}>
         <span>{label}</span>
         <span>{pct.toFixed(0)}%</span>
       </div>
-      <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+      <div className="bg-gray-800 rounded-full overflow-hidden" style={{ height: '0.8vw' }}>
         <div
           className={`h-full bg-gradient-to-r ${color} rounded-full transition-all duration-700`}
           style={{ width: `${pct}%` }}
@@ -219,21 +222,23 @@ function PrizeThumb({ prize, onClick }: { prize: SlotPrize; onClick: () => void 
   return (
     <button
       onClick={onClick}
-      className={`flex-shrink-0 w-20 rounded-xl overflow-hidden border transition-all active:scale-95
+      style={{ width: '8vw' }}
+      className={`flex-shrink-0 rounded-xl overflow-hidden border transition-all active:scale-95
         ${exhausted ? 'border-gray-700 opacity-50' : 'border-gray-700 hover:border-amber-500/60'}`}
     >
       <div className="aspect-square bg-gray-800 flex items-center justify-center overflow-hidden">
         {prize.images[0]
           ? <img src={prize.images[0].imageUrl} alt={prize.name}
               className={`w-full h-full object-cover ${exhausted ? 'grayscale' : ''}`} />
-          : <span className="text-2xl">{exhausted ? '🩶' : '🎁'}</span>}
+          : <span className="text-4xl">{exhausted ? '🩶' : '🎁'}</span>}
       </div>
-      <div className="px-1.5 py-1 bg-gray-900">
-        <p className={`text-xs font-semibold truncate leading-tight
-          ${exhausted ? 'text-gray-600 line-through' : 'text-white'}`}>
+      <div className="bg-gray-900" style={{ padding: '0.4vw 0.6vw' }}>
+        <p className={`font-semibold truncate leading-tight ${exhausted ? 'text-gray-600 line-through' : 'text-white'}`}
+           style={{ fontSize: '1.1vw', marginBottom: '0.2vw' }}>
           {prize.name}
         </p>
-        <p className={`text-xs font-bold ${exhausted ? 'text-gray-600' : 'text-amber-400'}`}>
+        <p className={`font-bold ${exhausted ? 'text-gray-600' : 'text-amber-400'}`}
+           style={{ fontSize: '1.1vw' }}>
           {remaining}/{total}
         </p>
       </div>

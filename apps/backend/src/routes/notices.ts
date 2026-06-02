@@ -1,24 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-
-async function requireAuth(
-  request: Parameters<typeof import('../plugins/auth.js').requireAuth>[0],
-  reply: Parameters<typeof import('../plugins/auth.js').requireAuth>[1]
-) {
-  try { await request.jwtVerify() }
-  catch { return reply.status(401).send({ error: 'Unauthorized' }) }
-}
-
-async function requireSuperAdmin(
-  request: Parameters<typeof import('../plugins/auth.js').requireAuth>[0],
-  reply: Parameters<typeof import('../plugins/auth.js').requireAuth>[1]
-) {
-  try { await request.jwtVerify() }
-  catch { return reply.status(401).send({ error: 'Unauthorized' }) }
-  if (request.user?.role !== 'superadmin') {
-    return reply.status(403).send({ error: '슈퍼 어드민 권한이 필요합니다.' })
-  }
-}
+import { requireAuth, requireSuperAdmin } from '../plugins/auth.js'
 
 const noticeSchema = z.object({
   title:    z.string().min(1).max(200),
@@ -31,7 +13,6 @@ export const noticeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/', { preHandler: requireAuth }, async (request) => {
     const q = request.query as { limit?: string }
     const limit = Math.min(50, Number(q.limit) || 10)
-
     return app.prisma.notice.findMany({
       orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
       take: limit,
@@ -50,6 +31,7 @@ export const noticeRoutes: FastifyPluginAsync = async (app) => {
   app.post('/', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const body = noticeSchema.parse(request.body)
     const notice = await app.prisma.notice.create({ data: body })
+    app.log.info({ noticeId: notice.id, title: notice.title }, '공지 생성')
     return reply.status(201).send(notice)
   })
 
@@ -58,6 +40,7 @@ export const noticeRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const body = noticeSchema.partial().parse(request.body)
     const notice = await app.prisma.notice.update({ where: { id }, data: body })
+    app.log.info({ noticeId: id }, '공지 수정')
     return reply.send(notice)
   })
 
@@ -65,6 +48,7 @@ export const noticeRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/:id', { preHandler: requireSuperAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string }
     await app.prisma.notice.delete({ where: { id } })
+    app.log.info({ noticeId: id }, '공지 삭제')
     return reply.status(204).send()
   })
 }

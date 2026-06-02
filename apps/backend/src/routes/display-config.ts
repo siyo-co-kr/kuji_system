@@ -14,53 +14,83 @@ const updateSchema = z.object({
   })),
 })
 
-/** 슬롯에 이벤트 + 통계 + 번호 데이터를 attach해서 반환 */
+/**
+ * 슬롯 데이터 배치 조회 — N+1 없이 7개 쿼리로 전체 슬롯 처리
+ * (기존: 슬롯당 6쿼리 → 6분할 시 36쿼리)
+ */
 async function buildSlotData(app: Parameters<FastifyPluginAsync>[0], layoutId: string, slotCount: number) {
   const slotRecords = await app.prisma.displaySlot.findMany({
     where: { layoutId },
     orderBy: { slotIndex: 'asc' },
   })
   const slotMap = new Map(slotRecords.map((s) => [s.slotIndex, s.eventId]))
+  const eventIds = [...new Set(slotRecords.map((s) => s.eventId).filter(Boolean) as string[])]
 
-  return Promise.all(
-    Array.from({ length: slotCount }, async (_, i) => {
-      const eventId = slotMap.get(i) ?? null
-      if (!eventId) return { slotIndex: i, eventId: null, event: null, stats: null, numbers: [] }
+  if (eventIds.length === 0) {
+    return Array.from({ length: slotCount }, (_, i) => ({
+      slotIndex: i, eventId: null, event: null, stats: null, numbers: [],
+    }))
+  }
 
-      const [event, totalCount, remainingCount, totalPrizeCount, remainingPrizeCount, numbers] =
-        await Promise.all([
-          app.prisma.event.findFirst({
-            where: { id: eventId, ...notDeleted },
+  // 7개 배치 쿼리 (슬롯 수와 무관)
+  const [events, totalCounts, remainingCounts, prizeCounts, remainingPrizeCounts, allNumbers] =
+    await Promise.all([
+      app.prisma.event.findMany({
+        where: { id: { in: eventIds }, ...notDeleted },
+        include: {
+          prizes: {
             include: {
-              prizes: {
-                include: {
-                  images: { orderBy: { order: 'asc' } },
-                  prizeNumbers: {
-                    include: { kujiNumber: { select: { id: true, number: true, isDrawn: true } } },
-                  },
-                },
+              images: { orderBy: { order: 'asc' } },
+              prizeNumbers: {
+                include: { kujiNumber: { select: { id: true, number: true, isDrawn: true } } },
               },
             },
-          }),
-          app.prisma.kujiNumber.count({ where: { eventId } }),
-          app.prisma.kujiNumber.count({ where: { eventId, isDrawn: false } }),
-          app.prisma.kujiNumber.count({ where: { eventId, isPrize: true } }),
-          app.prisma.kujiNumber.count({ where: { eventId, isPrize: true, isDrawn: false } }),
-          app.prisma.kujiNumber.findMany({
-            where: { eventId },
-            orderBy: { number: 'asc' },
-            select: { id: true, number: true, isDrawn: true, isPrize: true },
-          }),
-        ])
+          },
+        },
+      }),
+      app.prisma.kujiNumber.groupBy({ by: ['eventId'], where: { eventId: { in: eventIds } }, _count: true }),
+      app.prisma.kujiNumber.groupBy({ by: ['eventId'], where: { eventId: { in: eventIds }, isDrawn: false }, _count: true }),
+      app.prisma.kujiNumber.groupBy({ by: ['eventId'], where: { eventId: { in: eventIds }, isPrize: true }, _count: true }),
+      app.prisma.kujiNumber.groupBy({ by: ['eventId'], where: { eventId: { in: eventIds }, isPrize: true, isDrawn: false }, _count: true }),
+      app.prisma.kujiNumber.findMany({
+        where: { eventId: { in: eventIds } },
+        orderBy: { number: 'asc' },
+        select: { id: true, eventId: true, number: true, isDrawn: true, isPrize: true },
+      }),
+    ])
 
-      return {
-        slotIndex: i, eventId,
-        event,
-        stats: event ? { totalCount, remainingCount, totalPrizeCount, remainingPrizeCount } : null,
-        numbers,
-      }
-    })
-  )
+  // Map으로 변환
+  const eventMap   = new Map(events.map((e) => [e.id, e]))
+  const toMap      = (arr: { eventId: string; _count: number }[]) => new Map(arr.map((r) => [r.eventId, r._count]))
+  const totalMap   = toMap(totalCounts)
+  const remainMap  = toMap(remainingCounts)
+  const prizeMap   = toMap(prizeCounts)
+  const remPrizeMap = toMap(remainingPrizeCounts)
+  const numbersMap = allNumbers.reduce<Map<string, typeof allNumbers>>((m, n) => {
+    if (!m.has(n.eventId)) m.set(n.eventId, [])
+    m.get(n.eventId)!.push(n)
+    return m
+  }, new Map())
+
+  return Array.from({ length: slotCount }, (_, i) => {
+    const eventId = slotMap.get(i) ?? null
+    if (!eventId) return { slotIndex: i, eventId: null, event: null, stats: null, numbers: [] }
+    const event = eventMap.get(eventId) ?? null
+    return {
+      slotIndex: i,
+      eventId,
+      event,
+      stats: event
+        ? {
+            totalCount:           totalMap.get(eventId)    ?? 0,
+            remainingCount:       remainMap.get(eventId)   ?? 0,
+            totalPrizeCount:      prizeMap.get(eventId)    ?? 0,
+            remainingPrizeCount:  remPrizeMap.get(eventId) ?? 0,
+          }
+        : null,
+      numbers: numbersMap.get(eventId) ?? [],
+    }
+  })
 }
 
 export const displayConfigRoutes: FastifyPluginAsync = async (app) => {
