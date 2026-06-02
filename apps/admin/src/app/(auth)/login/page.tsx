@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,6 +78,12 @@ export default function LoginPage() {
             </Button>
           </form>
         </div>
+        <p className="text-center text-sm text-gray-500 mt-4">
+          계정이 없으신가요?{' '}
+          <Link href="/register" className="text-indigo-600 hover:underline font-medium">
+            회원가입
+          </Link>
+        </p>
       </div>
     </div>
   )
