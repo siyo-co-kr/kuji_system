@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { Modal } from '@/components/ui/modal'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { CalendarDays, LogOut, Ticket, Store, Users, ShieldCheck, Settings, Megaphone, LayoutDashboard, Gift, Monitor } from 'lucide-react'
+import { CalendarDays, LogOut, Ticket, Store, Users, ShieldCheck, Settings, Megaphone, LayoutDashboard, Gift, Monitor, KeyRound } from 'lucide-react'
 
 const baseNavItems = [
   { href: '/',        label: '대시보드',      icon: LayoutDashboard },
@@ -29,6 +29,7 @@ export function Sidebar() {
   const router = useRouter()
   const { account, setAccount, logout } = useAuthStore()
   const [showProfile, setShowProfile] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const isSuperAdmin = account?.role === 'superadmin'
 
@@ -105,6 +106,14 @@ export function Sidebar() {
             매장 정보 수정
           </button>
         )}
+        {/* 비밀번호 변경 (모든 어드민) */}
+        <button
+          onClick={() => setShowChangePassword(true)}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+        >
+          <KeyRound size={18} />
+          비밀번호 변경
+        </button>
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
@@ -126,6 +135,12 @@ export function Sidebar() {
           }}
         />
       )}
+
+      {/* 비밀번호 변경 모달 */}
+      <ChangePasswordModal
+        open={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+      />
     </aside>
   )
 }
@@ -215,6 +230,74 @@ function StoreProfileModal({
           <Button type="submit" className="flex-1" loading={loading}>저장</Button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+// ── 비밀번호 변경 모달 ─────────────────────────────────────────
+
+function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+
+  const handleClose = () => {
+    setForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    setError('')
+    setSuccess(false)
+    onClose()
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    if (form.newPassword.length < 8) { setError('새 비밀번호는 8자 이상이어야 합니다.'); return }
+    if (form.newPassword !== form.confirmPassword) { setError('새 비밀번호가 일치하지 않습니다.'); return }
+    if (form.currentPassword === form.newPassword) { setError('현재 비밀번호와 다른 비밀번호를 입력해주세요.'); return }
+    setLoading(true)
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword: form.currentPassword,
+        newPassword: form.newPassword,
+      })
+      setSuccess(true)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? '비밀번호 변경에 실패했습니다.'
+      setError(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={handleClose} title="비밀번호 변경" className="max-w-sm">
+      {success ? (
+        <div className="text-center py-4">
+          <p className="text-3xl mb-3">✅</p>
+          <p className="font-semibold text-gray-900 mb-1">비밀번호가 변경됐습니다</p>
+          <p className="text-sm text-gray-500 mb-4">다음 로그인부터 새 비밀번호를 사용하세요.</p>
+          <Button className="w-full" onClick={handleClose}>확인</Button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input name="currentPassword" type="password" label="현재 비밀번호"
+            value={form.currentPassword} onChange={handleChange} required autoFocus />
+          <Input name="newPassword" type="password" label="변경할 비밀번호 (8자 이상)"
+            value={form.newPassword} onChange={handleChange} required />
+          <Input name="confirmPassword" type="password" label="변경할 비밀번호 확인"
+            value={form.confirmPassword} onChange={handleChange} required />
+          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <Button type="button" variant="secondary" className="flex-1" onClick={handleClose}>취소</Button>
+            <Button type="submit" className="flex-1" loading={loading}>변경</Button>
+          </div>
+        </form>
+      )}
     </Modal>
   )
 }

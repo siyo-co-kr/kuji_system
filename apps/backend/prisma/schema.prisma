@@ -30,6 +30,8 @@ model Account {
   storeId            String   @map("store_id")
   email              String   @unique
   passwordHash       String   @map("password_hash")
+  name               String   @default("")
+  phone              String?
   role               Role     @default(admin)
   isApproved         Boolean  @default(false) @map("is_approved")
   mustChangePassword Boolean  @default(false) @map("must_change_password")

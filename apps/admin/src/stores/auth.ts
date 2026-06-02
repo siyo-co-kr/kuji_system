@@ -10,6 +10,8 @@ interface AuthStore {
   account: {
     id: string
     email: string
+    name: string
+    phone?: string | null
     role: Role
     isApproved: boolean
     mustChangePassword: boolean
