@@ -1,23 +1,12 @@
 import { useState } from 'react'
 import type { SlotData, SlotPrize, SlotNumber } from '../pages/DisplayPage'
 
-/* ─────────────────────────────── 그리드 헬퍼 ─────────────────────── */
-function getGridCols(slots: number) {
-  switch (slots) {
-    case 2: return 'grid-cols-2'
-    case 3: return 'grid-cols-3'
-    case 4: return 'grid-cols-2'
-    case 6: return 'grid-cols-3'
-    default: return 'grid-cols-2'
-  }
-}
-function isOneRow(slots: number) { return slots === 2 || slots === 3 }
+/* 멀티뷰: 항상 4분할 (2×2 고정) */
 
 /* ─────────────────────────────── MultiView ─────────────────────────── */
-interface Props { slotCount: number; slotData: SlotData[] }
+interface Props { slotCount?: number; slotData: SlotData[] }
 
-export default function MultiView({ slotCount, slotData }: Props) {
-  const oneRow = isOneRow(slotCount)
+export default function MultiView({ slotData }: Props) {
   const hasActive = slotData.some((s) => s.event?.status === 'active')
 
   if (!hasActive) {
@@ -31,11 +20,9 @@ export default function MultiView({ slotCount, slotData }: Props) {
 
   return (
     <div className="h-full p-3">
-      <div
-        className={`grid ${getGridCols(slotCount)} gap-3 h-full`}
-        style={{ gridTemplateRows: oneRow ? '1fr' : '1fr 1fr' }}
-      >
-        {slotData.map((slot) => (
+      {/* 항상 2×2 고정 */}
+      <div className="grid grid-cols-2 gap-3 h-full" style={{ gridTemplateRows: '1fr 1fr' }}>
+        {slotData.slice(0, 4).map((slot) => (
           <MultiSlot key={slot.slotIndex} slot={slot} />
         ))}
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { connectSocket, getSocket } from '../lib/socket'
 import { useAuthStore } from '../stores/auth'
@@ -31,24 +31,17 @@ export interface SlotData {
 
 export default function DisplayPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const { account, logout } = useAuthStore()
 
   const [viewMode, setViewMode] = useState<'multi' | 'single'>('multi')
-  const [slotCount, setSlotCount] = useState(2)
   const [slotData, setSlotData] = useState<SlotData[]>([])
   const [loading, setLoading] = useState(true)
   const joinedRooms = useRef<Set<string>>(new Set())
-
-  // URL의 ?slot=N 파라미터 (싱글뷰에서 기기별 지정)
-  const slotParam = searchParams.get('slot')
-  const slotIndex = slotParam !== null ? parseInt(slotParam, 10) : null
 
   const fetchConfig = useCallback(async () => {
     try {
       const res = await api.get('/display-config')
       setViewMode(res.data.viewMode ?? 'multi')
-      setSlotCount(res.data.slots)
       setSlotData(res.data.slotData)
 
       const socket = getSocket()
@@ -80,12 +73,7 @@ export default function DisplayPage() {
       const drawnIds = new Set((drawn as { id: string }[]).map((n) => n.id))
       setSlotData((prev) => prev.map((slot) => {
         if (slot.eventId !== eventId) return slot
-
-        // 추첨된 번호 중 경품 번호 수 계산 → remainingPrizeCount 감소
-        const prizeDrawnCount = slot.numbers.filter(
-          (n) => drawnIds.has(n.id) && n.isPrize && !n.isDrawn
-        ).length
-
+        const prizeDrawnCount = slot.numbers.filter((n) => drawnIds.has(n.id) && n.isPrize && !n.isDrawn).length
         return {
           ...slot,
           numbers: slot.numbers.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n),
@@ -99,9 +87,7 @@ export default function DisplayPage() {
             prizes: slot.event.prizes.map((p) => ({
               ...p,
               prizeNumbers: p.prizeNumbers.map((pn) =>
-                drawnIds.has(pn.kujiNumber.id)
-                  ? { ...pn, kujiNumber: { ...pn.kujiNumber, isDrawn: true } }
-                  : pn
+                drawnIds.has(pn.kujiNumber.id) ? { ...pn, kujiNumber: { ...pn.kujiNumber, isDrawn: true } } : pn
               ),
             })),
           } : null,
@@ -119,8 +105,6 @@ export default function DisplayPage() {
     }
   }, [account, fetchConfig])
 
-  const handleLogout = () => { logout(); navigate('/login', { replace: true }) }
-
   if (loading) {
     return (
       <div className="h-screen bg-gray-950 flex items-center justify-center">
@@ -129,29 +113,25 @@ export default function DisplayPage() {
     )
   }
 
-  // 싱글뷰: ?slot=N 파라미터가 있거나 viewMode === 'single'
-  const isSingle = viewMode === 'single' || slotIndex !== null
-  const targetSlot = isSingle
-    ? slotData.find((s) => s.slotIndex === (slotIndex ?? 0)) ?? null
-    : null
-
   return (
     <div className="h-screen bg-gray-950 text-white flex flex-col overflow-hidden">
-      {/* 상단 바 */}
-      <header className="flex-shrink-0 flex items-center justify-between px-6 h-12 border-b border-gray-800">
-        <span className="text-base font-bold text-gray-100">{account?.store.name}</span>
-        <button onClick={handleLogout}
-          className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+      {/* 상단 바 — 싱글뷰는 이벤트 선택기 포함 */}
+      <header className="flex-shrink-0 flex items-center h-12 px-6 border-b border-gray-800">
+        <span className="text-sm font-bold text-gray-300 w-32 truncate">{account?.store.name}</span>
+        <div className="flex-1" />
+        <button
+          onClick={() => { logout(); navigate('/login', { replace: true }) }}
+          className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+        >
           로그아웃
         </button>
       </header>
 
-      {/* 메인 콘텐츠 */}
       <main className="flex-1 min-h-0">
-        {isSingle ? (
-          <SingleView slot={targetSlot} />
+        {viewMode === 'single' ? (
+          <SingleView storeId={account?.store.id ?? ''} />
         ) : (
-          <MultiView slotCount={slotCount} slotData={slotData} />
+          <MultiView slotCount={4} slotData={slotData} />
         )}
       </main>
     </div>
