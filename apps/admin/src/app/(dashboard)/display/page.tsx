@@ -17,11 +17,11 @@ export default function DisplaySettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     if (!account?.store.id) return
     const [configRes, eventsRes] = await Promise.all([
-      api.get('/display-config'),
-      api.get(`/events?storeId=${account.store.id}`),
+      api.get('/display-config', { signal }),
+      api.get(`/events?storeId=${account.store.id}`, { signal }),
     ])
     const config = configRes.data
     setViewMode(config.viewMode ?? 'multi')
@@ -35,7 +35,15 @@ export default function DisplaySettingsPage() {
     setLoading(false)
   }, [account])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal).catch((err) => {
+      if (err?.name !== 'CanceledError' && err?.name !== 'AbortError') {
+        console.error('[DisplaySettings] fetchData error:', err)
+      }
+    })
+    return () => controller.abort()
+  }, [fetchData])
 
   const handleEventChange = (slotIndex: number, eventId: string) => {
     setSlotEvents((prev) => {

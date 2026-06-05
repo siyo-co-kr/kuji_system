@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, getErrorMessage } from '@/lib/api'
+import { validatePassword, validatePasswordConfirm } from '@/lib/validation'
 import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,14 +37,12 @@ export default function ChangePasswordPage() {
     e.preventDefault()
     setError('')
 
-    if (form.newPassword.length < 8) {
-      setError('새 비밀번호는 8자 이상이어야 합니다.')
-      return
-    }
-    if (form.newPassword !== form.confirmPassword) {
-      setError('새 비밀번호가 일치하지 않습니다.')
-      return
-    }
+    const passwordError = validatePassword(form.newPassword)
+    if (passwordError) { setError(passwordError); return }
+
+    const confirmError = validatePasswordConfirm(form.newPassword, form.confirmPassword)
+    if (confirmError) { setError(confirmError); return }
+
     if (form.currentPassword === form.newPassword) {
       setError('새 비밀번호는 현재 비밀번호와 달라야 합니다.')
       return
@@ -60,10 +59,7 @@ export default function ChangePasswordPage() {
       setAccount({ ...account, mustChangePassword: false })
       router.replace('/')
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        '비밀번호 변경에 실패했습니다.'
-      setError(msg)
+      setError(getErrorMessage(err, '비밀번호 변경에 실패했습니다.'))
     } finally {
       setLoading(false)
     }

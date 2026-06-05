@@ -23,3 +23,10 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+/** API 에러에서 사용자 표시용 메시지를 추출합니다. */
+export function getErrorMessage(err: unknown, fallback = '오류가 발생했습니다.'): string {
+  return (
+    (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? fallback
+  )
+}

@@ -1,6 +1,7 @@
 'use client'
 import { Sidebar } from '@/components/layout/sidebar'
 import { AuthGuard } from '@/components/auth/auth-guard'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { useAuthStore } from '@/stores/auth'
 import { AlertTriangle } from 'lucide-react'
 
@@ -38,7 +39,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <DashboardContent>{children}</DashboardContent>
+      <ErrorBoundary>
+        <DashboardContent>{children}</DashboardContent>
+      </ErrorBoundary>
     </AuthGuard>
   )
 }

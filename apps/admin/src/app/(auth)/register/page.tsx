@@ -2,7 +2,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { api } from '@/lib/api'
+import { api, getErrorMessage } from '@/lib/api'
+import { validateEmail, validatePassword, validatePasswordConfirm } from '@/lib/validation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Ticket, CheckCircle2 } from 'lucide-react'
@@ -35,18 +36,15 @@ export default function RegisterPage() {
       setError('모든 항목을 입력해주세요.')
       return false
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form1.email)) {
-      setError('올바른 이메일 형식이 아닙니다.')
-      return false
-    }
-    if (form1.password.length < 8) {
-      setError('비밀번호는 8자 이상이어야 합니다.')
-      return false
-    }
-    if (form1.password !== form1.passwordConfirm) {
-      setError('비밀번호가 일치하지 않습니다.')
-      return false
-    }
+    const emailError = validateEmail(form1.email)
+    if (emailError) { setError(emailError); return false }
+
+    const passwordError = validatePassword(form1.password)
+    if (passwordError) { setError(passwordError); return false }
+
+    const confirmError = validatePasswordConfirm(form1.password, form1.passwordConfirm)
+    if (confirmError) { setError(confirmError); return false }
+
     return true
   }
 
@@ -68,9 +66,7 @@ export default function RegisterPage() {
       await api.post('/auth/register', { ...form1, ...form2 })
       setDone(true)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        ?? '회원가입에 실패했습니다.'
-      setError(msg)
+      setError(getErrorMessage(err, '회원가입에 실패했습니다.'))
     } finally {
       setLoading(false)
     }

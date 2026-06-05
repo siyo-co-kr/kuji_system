@@ -1,9 +1,11 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket'
 import { useAuthStore } from '@/stores/auth'
+import { getErrorMessage } from '@/lib/api'
+import { toast } from 'sonner'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,6 +48,12 @@ export default function EventDetailPage() {
   const [visibilityLoading, setVisibilityLoading] = useState(false)
   const [drawingId, setDrawingId] = useState<string | null>(null)
 
+  // 소켓 핸들러 내 스테일 클로저 방지용 ref
+  const numbersRef = useRef(numbers)
+  const eventRef = useRef(event)
+  useEffect(() => { numbersRef.current = numbers }, [numbers])
+  useEffect(() => { eventRef.current = event }, [event])
+
   const fetchAll = useCallback(async () => {
     const [evRes, statsRes, numRes] = await Promise.all([
       api.get(`/events/${id}`),
@@ -74,10 +82,17 @@ export default function EventDetailPage() {
       // 번호 그리드 업데이트
       setNumbers((prev) => prev.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n))
 
-      // 통계 업데이트 (번호 + 경품 잔여 수 동시 반영)
-      const prizeDrawnCount = numbers.filter(
-        (n) => drawnIds.has(n.id) && assignedNumberIds.has(n.id) && !n.isDrawn
+      // ref로 최신 상태를 읽어 스테일 클로저 방지
+      const currentNumbers = numbersRef.current
+      const currentEvent = eventRef.current
+      const assignedIds = new Set(
+        currentEvent?.prizes.flatMap((p) => p.prizeNumbers.map((pn) => pn.kujiNumber.id)) ?? []
+      )
+      const prizeDrawnCount = currentNumbers.filter(
+        (n) => drawnIds.has(n.id) && assignedIds.has(n.id) && !n.isDrawn
       ).length
+
+      // 통계 업데이트
       setStats((prev) => prev ? {
         ...prev,
         remainingCount:      Math.max(0, prev.remainingCount - drawnNumbers.length),
@@ -149,8 +164,7 @@ export default function EventDetailPage() {
       await api.patch(`/events/${id}/numbers/${numberId}/draw`)
       // 소켓 이벤트로 UI 업데이트됨
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '추첨 처리에 실패했습니다.'
-      alert(msg)
+      toast.error(getErrorMessage(err, '추첨 처리에 실패했습니다.'))
     } finally {
       setDrawingId(null)
     }
