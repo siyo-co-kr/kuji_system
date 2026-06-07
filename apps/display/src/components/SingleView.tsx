@@ -30,6 +30,12 @@ export default function SingleView({ storeId }: Props) {
   const [showPrizes, setShowPrizes] = useState(false)
   const joinedRoom = useRef<string | null>(null)
 
+  // 소켓 핸들러 내 스테일 클로저 방지용 ref (effect 재실행으로 인한 리스너 churn 방지)
+  const selectedIdRef = useRef(selectedId)
+  const numbersRef = useRef(numbers)
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+  useEffect(() => { numbersRef.current = numbers }, [numbers])
+
   // 진행중 이벤트 목록 (헤더 탭용 — 간략 정보)
   const fetchEvents = useCallback(async () => {
     try {
@@ -81,13 +87,17 @@ export default function SingleView({ storeId }: Props) {
   }, [selectedId, fetchDetail])
 
   // 실시간 소켓
+  // 주의: 같은 socket 싱글톤을 DisplayPage와 공유하므로, 핸들러 참조를 보관해
+  // cleanup 시 본인이 등록한 리스너만 off 해야 한다 (socket.off(event)는 해당
+  // 이벤트의 모든 리스너를 제거해 다른 컴포넌트의 구독까지 끊어버린다).
   useEffect(() => {
     const socket = connectSocket()
 
-    socket.on('number:drawn', ({ eventId, numbers: drawn }) => {
-      if (eventId !== selectedId) return
-      const drawnIds = new Set((drawn as { id: string }[]).map((n) => n.id))
-      const prizeDrawn = numbers.filter((n) => drawnIds.has(n.id) && n.isPrize && !n.isDrawn).length
+    const handleNumberDrawn = ({ eventId, numbers: drawn }: { eventId: string; numbers: { id: string }[] }) => {
+      if (eventId !== selectedIdRef.current) return
+      const drawnIds = new Set(drawn.map((n) => n.id))
+      const currentNumbers = numbersRef.current
+      const prizeDrawn = currentNumbers.filter((n) => drawnIds.has(n.id) && n.isPrize && !n.isDrawn).length
       setNumbers((prev) => prev.map((n) => drawnIds.has(n.id) ? { ...n, isDrawn: true } : n))
       setStats((prev) => prev ? {
         ...prev,
@@ -107,18 +117,21 @@ export default function SingleView({ storeId }: Props) {
           })),
         }
       })
-    })
+    }
 
-    socket.on('event:updated', () => {
+    const handleEventUpdated = () => {
       fetchEvents()
-      if (selectedId) fetchDetail(selectedId)
-    })
+      if (selectedIdRef.current) fetchDetail(selectedIdRef.current)
+    }
+
+    socket.on('number:drawn', handleNumberDrawn)
+    socket.on('event:updated', handleEventUpdated)
 
     return () => {
-      socket.off('number:drawn')
-      socket.off('event:updated')
+      socket.off('number:drawn', handleNumberDrawn)
+      socket.off('event:updated', handleEventUpdated)
     }
-  }, [selectedId, numbers, fetchEvents, fetchDetail])
+  }, [fetchEvents, fetchDetail])
 
   if (loadingEvents) {
     return (

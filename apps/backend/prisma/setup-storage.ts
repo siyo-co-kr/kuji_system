@@ -2,24 +2,8 @@
  * Supabase Storage 버킷 초기 설정
  * 실행: tsx prisma/setup-storage.ts
  */
-import { config } from 'node:process'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import '../src/load-env.js'
 
-// .env 수동 로드 (tsx는 자동으로 .env를 읽지 않음)
-try {
-  const envPath = resolve(process.cwd(), '.env')
-  const lines = readFileSync(envPath, 'utf-8').split('\n')
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const idx = trimmed.indexOf('=')
-    if (idx === -1) continue
-    const key = trimmed.slice(0, idx).trim()
-    const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '')
-    if (key && !process.env[key]) process.env[key] = val
-  }
-} catch { /* .env 없으면 무시 */ }
 
 import { StorageClient } from '@supabase/storage-js'
 
