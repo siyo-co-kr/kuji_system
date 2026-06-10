@@ -13,7 +13,7 @@ export default function PrizeModal({ eventTitle, prizes, onClose }: Props) {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       {/* 모달 */}
-      <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl w-full max-w-xl max-h-[72vh] flex flex-col">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
           <div>

@@ -28,9 +28,6 @@ export default function EventSlot({ slot, displayMode }: Props) {
 
   const drawnCount = stats.totalCount - stats.remainingCount
   const progress = stats.totalCount > 0 ? drawnCount / stats.totalCount * 100 : 0
-  const winProbability = stats.remainingCount > 0
-    ? (stats.remainingPrizeCount / stats.remainingCount * 100)
-    : 0
 
   return (
     <>
@@ -74,12 +71,6 @@ export default function EventSlot({ slot, displayMode }: Props) {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500 leading-none">당첨 확률</p>
-                <p className="text-base font-bold text-amber-400 tabular-nums leading-tight">
-                  {winProbability.toFixed(1)}%
-                </p>
-              </div>
-              <div>
                 <p className="text-xs text-gray-500 leading-none">남은 경품</p>
                 <p className="text-base font-bold text-green-400 tabular-nums leading-tight">
                   {stats.remainingPrizeCount}<span className="text-xs text-gray-600">/{stats.totalPrizeCount}</span>
@@ -98,7 +89,7 @@ export default function EventSlot({ slot, displayMode }: Props) {
         {/* 중단: 번호 그리드 or 게이지 */}
         <div className="flex-1 min-h-0 overflow-auto scrollbar-hide p-2">
           {displayMode === 'gauge' ? (
-            <GaugeDisplay stats={stats} winProbability={winProbability} />
+            <GaugeDisplay stats={stats} />
           ) : (
             <NumberGrid numbers={numbers} />
           )}

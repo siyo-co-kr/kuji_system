@@ -59,6 +59,8 @@ model Event {
   bonusEnabled   Boolean     @default(false) @map("bonus_enabled")
   bonusThreshold Int         @default(10)    @map("bonus_threshold")
   isVisible      Boolean     @default(false) @map("is_visible")
+  mode           String      @default("online")
+  maxNumber      Int?        @map("max_number")
   status         EventStatus @default(draft)
   startedAt      DateTime?   @map("started_at")
   endedAt        DateTime?   @map("ended_at")
@@ -94,7 +96,7 @@ model KujiNumber {
   event       Event        @relation(fields: [eventId], references: [id])
   prizeNumber PrizeNumber?
 
-  @@unique([eventId, number])
+  @@index([eventId, number])
   @@index([eventId])
   @@index([eventId, isDrawn])
   @@index([eventId, isPrize])

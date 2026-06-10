@@ -2,15 +2,12 @@ import type { SlotStats } from '../pages/DisplayPage'
 
 interface Props {
   stats: SlotStats
-  winProbability: number
-  /** compact=true: 멀티뷰 슬롯용 (작은 높이) */
   compact?: boolean
 }
 
-export default function GaugeDisplay({ stats, winProbability, compact = false }: Props) {
-  const drawnCount  = stats.totalCount - stats.remainingCount
+export default function GaugeDisplay({ stats, compact = false }: Props) {
+  const drawnCount   = stats.totalCount - stats.remainingCount
   const drawnPercent = stats.totalCount > 0 ? drawnCount / stats.totalCount * 100 : 0
-  const prizePercent = Math.min(winProbability, 100)
 
   return (
     <div className={`h-full flex flex-col justify-center ${compact ? 'gap-2 px-1 py-1' : 'gap-4 px-2 py-3'}`}>
@@ -28,35 +25,17 @@ export default function GaugeDisplay({ stats, winProbability, compact = false }:
             style={{ width: `${drawnPercent}%` }}
           />
         </div>
-        {!compact && <p className="text-right text-xs text-gray-600 mt-0.5">
-          {drawnPercent.toFixed(0)}% 추첨됨
-        </p>}
-      </div>
-
-      {/* 당첨 확률 게이지 */}
-      <div>
-        <div className="flex justify-between text-xs mb-1">
-          <span className="text-gray-400">당첨 확률</span>
-          <span className="text-amber-400 font-bold tabular-nums">
-            {winProbability.toFixed(1)}%
-          </span>
-        </div>
-        <div className={`${compact ? 'h-2.5' : 'h-4'} bg-gray-800 rounded-full overflow-hidden`}>
-          <div
-            className="h-full bg-gradient-to-r from-amber-700 to-amber-400 rounded-full transition-all duration-700"
-            style={{ width: `${prizePercent}%` }}
-          />
-        </div>
-        <p className="text-right text-xs text-gray-600 mt-0.5">
-          경품 {stats.remainingPrizeCount}개 / 번호 {stats.remainingCount}개 잔여
-        </p>
+        {!compact && (
+          <p className="text-right text-xs text-gray-600 mt-0.5">
+            {drawnPercent.toFixed(0)}% 추첨됨
+          </p>
+        )}
       </div>
 
       {/* 수치 카드 */}
-      <div className="grid grid-cols-3 gap-2 mt-1">
+      <div className="grid grid-cols-2 gap-2 mt-1">
         <StatBox label="남은 번호" value={stats.remainingCount} color="text-indigo-400" />
         <StatBox label="남은 경품" value={stats.remainingPrizeCount} color="text-green-400" />
-        <StatBox label="추첨됨" value={drawnCount} color="text-gray-400" />
       </div>
     </div>
   )

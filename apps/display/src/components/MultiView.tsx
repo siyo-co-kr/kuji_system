@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { SlotData, SlotPrize, SlotNumber } from '../pages/DisplayPage'
 
 /* 멀티뷰: 항상 4분할 (2×2 고정) */
@@ -47,8 +47,6 @@ function MultiSlot({ slot }: { slot: SlotData }) {
   const { event, stats, numbers } = slot
   const drawnCount  = stats.totalCount - stats.remainingCount
   const drawnPct    = stats.totalCount > 0 ? drawnCount / stats.totalCount * 100 : 0
-  const winProb     = stats.remainingCount > 0
-    ? stats.remainingPrizeCount / stats.remainingCount * 100 : 0
 
   return (
     <>
@@ -112,27 +110,17 @@ function MultiSlot({ slot }: { slot: SlotData }) {
             />
           </div>
 
-          {/* 게이지 2줄 */}
-          <div className="flex-shrink-0 space-y-1.5">
+          {/* 게이지 1줄 */}
+          <div className="flex-shrink-0">
             <GaugeBar label="추첨 진행" pct={drawnPct}
               color="from-indigo-700 to-indigo-400" />
-            <GaugeBar label={`당첨 확률 ${winProb.toFixed(1)}%`} pct={Math.min(winProb, 100)}
-              color="from-amber-700 to-amber-400" />
           </div>
 
           {/* 경품 카드 가로 스크롤 */}
           {event.prizes.length > 0 && (
             <div className="flex-1 min-h-0 flex flex-col">
               <p className="text-gray-500 flex-shrink-0" style={{ fontSize: '1vw', marginBottom: '0.3vw' }}>경품</p>
-              <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                {event.prizes.map((prize) => (
-                  <PrizeThumb
-                    key={prize.id}
-                    prize={prize}
-                    onClick={() => setSelectedPrize(prize)}
-                  />
-                ))}
-              </div>
+              <PrizeScrollRow prizes={event.prizes} onPrizeClick={setSelectedPrize} />
             </div>
           )}
         </div>
@@ -181,6 +169,70 @@ function StatBtn({ label, value, sub, color, onClick }: {
         {value}<span className="text-gray-600 font-normal" style={{ fontSize: '1vw' }}>{sub}</span>
       </p>
     </button>
+  )
+}
+
+/* ─────────────────────────────── 경품 가로 스크롤 (화살표 포함) ─── */
+function PrizeScrollRow({ prizes, onPrizeClick }: { prizes: SlotPrize[]; onPrizeClick: (p: SlotPrize) => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canLeft,  setCanLeft]  = useState(false)
+  const [canRight, setCanRight] = useState(false)
+
+  const updateArrows = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 2)
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+  }
+
+  useEffect(() => {
+    updateArrows()
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [prizes])
+
+  const scroll = (dir: 'left' | 'right') => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir === 'right' ? el.clientWidth * 0.6 : -el.clientWidth * 0.6, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="relative flex items-stretch overflow-hidden">
+      {canLeft && (
+        <button
+          onClick={() => scroll('left')}
+          className="absolute left-0 top-0 bottom-0 z-10 flex items-center justify-center
+            bg-gradient-to-r from-gray-900 to-transparent pr-1 transition-opacity"
+          style={{ width: '2.2vw' }}
+        >
+          <span className="text-gray-400 font-bold" style={{ fontSize: '1.4vw' }}>‹</span>
+        </button>
+      )}
+      <div
+        ref={scrollRef}
+        onScroll={updateArrows}
+        className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 w-full"
+        style={{ paddingLeft: canLeft ? '2.4vw' : undefined, paddingRight: canRight ? '2.4vw' : undefined }}
+      >
+        {prizes.map((prize) => (
+          <PrizeThumb key={prize.id} prize={prize} onClick={() => onPrizeClick(prize)} />
+        ))}
+      </div>
+      {canRight && (
+        <button
+          onClick={() => scroll('right')}
+          className="absolute right-0 top-0 bottom-0 z-10 flex items-center justify-center
+            bg-gradient-to-l from-gray-900 to-transparent pl-1 transition-opacity"
+          style={{ width: '2.2vw' }}
+        >
+          <span className="text-gray-400 font-bold" style={{ fontSize: '1.4vw' }}>›</span>
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -411,7 +463,7 @@ function LargeModal({ children, title, badge, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl
-        w-[92vw] h-[88vh] flex flex-col overflow-hidden">
+        w-[78vw] h-[80vh] flex flex-col overflow-hidden">
         {/* 헤더 */}
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-800">
           <div className="flex items-center gap-3 min-w-0">

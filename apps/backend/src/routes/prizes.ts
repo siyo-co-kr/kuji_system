@@ -103,9 +103,19 @@ export const prizeRoutes: FastifyPluginAsync = async (app) => {
         const removedIds = currentIds.filter((cid) => !body.numberIds!.includes(cid))
         const addedIds   = body.numberIds.filter((nid) => !currentIds.includes(nid))
 
+        // 오프라인 모드 확인 (pre-mark된 isPrize를 유지하기 위해)
+        const prizeEvent = await tx.event.findUnique({
+          where: { id: prize.eventId },
+          select: { mode: true },
+        })
+        const isOffline = prizeEvent?.mode === 'offline'
+
         if (removedIds.length > 0) {
           await tx.prizeNumber.deleteMany({ where: { prizeId: id, kujiNumberId: { in: removedIds } } })
-          await tx.kujiNumber.updateMany({ where: { id: { in: removedIds } }, data: { isPrize: false } })
+          // 오프라인 모드에서는 pre-designated 번호의 isPrize를 유지
+          if (!isOffline) {
+            await tx.kujiNumber.updateMany({ where: { id: { in: removedIds } }, data: { isPrize: false } })
+          }
         }
         if (addedIds.length > 0) {
           await tx.prizeNumber.createMany({
@@ -142,10 +152,17 @@ export const prizeRoutes: FastifyPluginAsync = async (app) => {
         include: { prizeNumbers: true },
       })
 
-      await tx.kujiNumber.updateMany({
-        where: { id: { in: prize.prizeNumbers.map((p) => p.kujiNumberId) } },
-        data: { isPrize: false },
+      // 오프라인 모드에서는 pre-designated 번호의 isPrize를 유지
+      const prizeEvent = await tx.event.findUnique({
+        where: { id: prize.eventId },
+        select: { mode: true },
       })
+      if (prizeEvent?.mode !== 'offline') {
+        await tx.kujiNumber.updateMany({
+          where: { id: { in: prize.prizeNumbers.map((p) => p.kujiNumberId) } },
+          data: { isPrize: false },
+        })
+      }
 
       await tx.prizeNumber.deleteMany({ where: { prizeId: id } })
       await tx.prizeImage.deleteMany({ where: { prizeId: id } })

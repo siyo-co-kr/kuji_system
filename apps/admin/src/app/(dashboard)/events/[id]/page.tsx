@@ -22,15 +22,17 @@ import type { Event, Prize, EventStats } from '@kuji/types'
 const STATUS_LABEL = { draft: '준비중', active: '진행중', closed: '종료' } as const
 const STATUS_VARIANT = { draft: 'default', active: 'success', closed: 'warning' } as const
 
-interface EventDetail extends Omit<Event, 'bonusEnabled' | 'bonusThreshold' | 'isVisible'> {
+interface EventDetail extends Omit<Event, 'bonusEnabled' | 'bonusThreshold' | 'isVisible' | 'mode'> {
   thumbnailUrl?: string | null
   bonusEnabled?: boolean
   bonusThreshold?: number
   isVisible?: boolean
+  mode: 'online' | 'offline'
+  maxNumber?: number | null
   prizes: (Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] })[]
 }
 
-interface KujiNumberSimple { id: string; number: number; isDrawn: boolean }
+interface KujiNumberSimple { id: string; number: number; isDrawn: boolean; isPrize: boolean }
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -170,6 +172,31 @@ export default function EventDetailPage() {
     }
   }
 
+  const [batchDrawInput, setBatchDrawInput] = useState('')
+  const [batchDrawLoading, setBatchDrawLoading] = useState(false)
+
+  const handleBatchDraw = async () => {
+    const nums = batchDrawInput
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n) && n > 0)
+    if (nums.length === 0) {
+      toast.error('유효한 번호를 입력해주세요.')
+      return
+    }
+    setBatchDrawLoading(true)
+    try {
+      const res = await api.patch(`/events/${id}/numbers/batch-draw`, { numbers: nums })
+      const { drawn, skipped } = res.data as { drawn: number; skipped: number }
+      toast.success(`${drawn}개 비활성화 완료${skipped > 0 ? ` (${skipped}개 스킵)` : ''}`)
+      setBatchDrawInput('')
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, '비활성화에 실패했습니다.'))
+    } finally {
+      setBatchDrawLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -185,7 +212,12 @@ export default function EventDetailPage() {
   const assignedNumberIds = new Set(
     event.prizes.flatMap((p) => p.prizeNumbers.map((pn) => pn.kujiNumber.id))
   )
-  const availableForPrize = remainingNumbers.filter((n) => !assignedNumberIds.has(n.id))
+  const isOfflineMode = event.mode === 'offline'
+  const availableForPrize = remainingNumbers.filter((n) => {
+    if (assignedNumberIds.has(n.id)) return false
+    if (isOfflineMode) return n.isPrize  // 오프라인: 사전 지정 경품 번호만
+    return true
+  })
 
   return (
     <div className="p-8 max-w-5xl">
@@ -409,6 +441,30 @@ export default function EventDetailPage() {
                 뽑힘 ({drawnNumbers.length})
               </span>
             </div>
+            {event.status === 'active' && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-600 mb-1.5">번호 일괄 비활성화</p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="예: 1,7,11,30"
+                    value={batchDrawInput}
+                    onChange={(e) => setBatchDrawInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleBatchDraw()}
+                    className="text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={handleBatchDraw}
+                    loading={batchDrawLoading}
+                    className="flex-shrink-0"
+                  >
+                    비활성화
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -428,6 +484,7 @@ export default function EventDetailPage() {
           prize={editingPrize}
           allNumbers={numbers}
           assignedNumberIds={assignedNumberIds}
+          isOfflineMode={isOfflineMode}
           onClose={() => setEditingPrize(null)}
           onSaved={() => { setEditingPrize(null); fetchAll() }}
         />
@@ -463,11 +520,12 @@ function StatCard({ label, value, unit, highlight }: {
 
 // ── 경품 수정 모달 ─────────────────────────────────────────────
 function EditPrizeModal({
-  prize, allNumbers, assignedNumberIds, onClose, onSaved,
+  prize, allNumbers, assignedNumberIds, isOfflineMode, onClose, onSaved,
 }: {
   prize: Prize & { prizeNumbers: { kujiNumber: { id: string; number: number; isDrawn: boolean } }[] }
   allNumbers: KujiNumberSimple[]
   assignedNumberIds: Set<string>
+  isOfflineMode: boolean
   onClose: () => void
   onSaved: () => void
 }) {
@@ -482,8 +540,13 @@ function EditPrizeModal({
   const [error, setError] = useState('')
 
   // 선택 가능 번호 = 이 경품의 번호 + 아직 미배정 번호 (다른 경품 번호 제외)
+  // 오프라인 모드: isPrize = true (사전 지정)인 번호만 허용
   const otherPrizeIds = new Set([...assignedNumberIds].filter((id) => !initialNumberIds.includes(id)))
-  const availableNumbers = allNumbers.filter((n) => !otherPrizeIds.has(n.id))
+  const availableNumbers = allNumbers.filter((n) => {
+    if (otherPrizeIds.has(n.id)) return false
+    if (isOfflineMode && !n.isPrize) return false
+    return true
+  })
 
   const toggleId = (id: string) =>
     setSelectedIds((prev) =>

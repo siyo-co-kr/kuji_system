@@ -15,12 +15,45 @@ const createEventSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   thumbnailUrl: z.string().url().optional().or(z.literal('')),
-  totalCount: z.number().int().min(1).max(10000),
+  totalCount: z.number().int().min(1).max(100000),
   pricePerUnit: z.number().int().min(0),
   bonusEnabled: z.boolean().optional().default(false),
   bonusThreshold: z.number().int().min(2).max(100).optional().default(10),
   isVisible: z.boolean().optional().default(false),
+  // 오프라인 모드 전용
+  mode: z.enum(['online', 'offline']).optional().default('online'),
+  maxNumber: z.number().int().min(1).optional(),
+  prizeNumbers: z.array(z.number().int().min(1)).optional().default([]),
 })
+
+/**
+ * 오프라인 쿠지 번호 생성 알고리즘
+ * - 1차 싸이클: 1 ~ maxNumber (경품 번호 포함, 1회만 등장)
+ * - 2차~ 싸이클: 1 ~ maxNumber 중 경품 번호 제외하며 반복
+ * - totalCount 에 도달하면 종료
+ */
+function generateOfflineNumbers(totalCount: number, maxNumber: number, prizeNumberSet: Set<number>): number[] {
+  const result: number[] = []
+
+  // 1차 싸이클: 모든 번호 포함
+  for (let n = 1; n <= maxNumber && result.length < totalCount; n++) {
+    result.push(n)
+  }
+
+  // 2차~ 싸이클: 경품 번호 제외
+  const nonPrizeCount = maxNumber - prizeNumberSet.size
+  if (nonPrizeCount <= 0) return result  // 모든 번호가 경품이면 반복 불가
+
+  while (result.length < totalCount) {
+    for (let n = 1; n <= maxNumber && result.length < totalCount; n++) {
+      if (!prizeNumberSet.has(n)) {
+        result.push(n)
+      }
+    }
+  }
+
+  return result
+}
 
 const bulkDeleteSchema = z.object({
   eventIds: z.array(z.string().uuid()).min(1),
@@ -86,7 +119,7 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     return app.prisma.kujiNumber.findMany({
       where: { eventId: id },
       orderBy: { number: 'asc' },
-      select: { id: true, number: true, isDrawn: true },
+      select: { id: true, number: true, isDrawn: true, isPrize: true },
     })
   })
 
@@ -94,24 +127,60 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     const { storeId } = request.user
     const body = createEventSchema.parse(request.body)
 
+    // 오프라인 모드 유효성 검사
+    if (body.mode === 'offline') {
+      if (!body.maxNumber) {
+        return reply.status(400).send({ error: '오프라인 모드는 최대 번호(maxNumber)가 필요합니다.' })
+      }
+      if (body.maxNumber > body.totalCount) {
+        return reply.status(400).send({ error: '최대 번호는 전체 번호 수보다 클 수 없습니다.' })
+      }
+      const invalidPrize = (body.prizeNumbers ?? []).find((n) => n > body.maxNumber!)
+      if (invalidPrize) {
+        return reply.status(400).send({ error: `경품 번호 ${invalidPrize}이(가) 최대 번호(${body.maxNumber})를 초과합니다.` })
+      }
+    }
+
     const event = await app.prisma.$transaction(async (tx) => {
       const newEvent = await tx.event.create({
         data: {
           storeId,
-          ...body,
+          title:          body.title,
+          description:    body.description    || null,
           thumbnailUrl:   body.thumbnailUrl   || null,
-          bonusEnabled:   body.bonusEnabled    ?? false,
-          bonusThreshold: body.bonusThreshold  ?? 10,
-          isVisible:      body.isVisible       ?? false,
+          totalCount:     body.totalCount,
+          pricePerUnit:   body.pricePerUnit,
+          bonusEnabled:   body.bonusEnabled   ?? false,
+          bonusThreshold: body.bonusThreshold ?? 10,
+          isVisible:      body.isVisible      ?? false,
+          mode:           body.mode           ?? 'online',
+          maxNumber:      body.mode === 'offline' ? (body.maxNumber ?? null) : null,
         },
       })
 
+      // 번호 생성
+      let numberSequence: number[]
+      const prizeSet = body.mode === 'offline' ? new Set(body.prizeNumbers ?? []) : new Set<number>()
+      if (body.mode === 'offline' && body.maxNumber) {
+        numberSequence = generateOfflineNumbers(body.totalCount, body.maxNumber, prizeSet)
+      } else {
+        numberSequence = Array.from({ length: body.totalCount }, (_, i) => i + 1)
+      }
+
       await tx.kujiNumber.createMany({
-        data: Array.from({ length: body.totalCount }, (_, i) => ({
+        data: numberSequence.map((number) => ({
           eventId: newEvent.id,
-          number: i + 1,
+          number,
         })),
       })
+
+      // 오프라인 모드: 지정된 경품 번호를 isPrize = true 로 pre-mark
+      if (body.mode === 'offline' && prizeSet.size > 0) {
+        await tx.kujiNumber.updateMany({
+          where: { eventId: newEvent.id, number: { in: [...prizeSet] } },
+          data: { isPrize: true },
+        })
+      }
 
       return newEvent
     })
@@ -159,6 +228,44 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
 
     app.io.to(`event:${id}`).emit('event:updated', { eventId: id })
     return updated
+  })
+
+  // ── 번호 일괄 비활성화 (번호값 입력) ───────────────────────────
+  app.patch('/:id/numbers/batch-draw', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { storeId } = request.user
+    const { numbers: numberValues } = request.body as { numbers: number[] }
+
+    if (!Array.isArray(numberValues) || numberValues.length === 0) {
+      return reply.status(400).send({ error: '번호 목록이 필요합니다.' })
+    }
+
+    const event = await app.prisma.event.findFirst({ where: { id, storeId, ...notDeleted } })
+    if (!event) return reply.status(404).send({ error: 'Event not found' })
+    if (event.status !== 'active') {
+      return reply.status(400).send({ error: '진행중인 이벤트에서만 사용 가능합니다.' })
+    }
+
+    const drawnList: { id: string; number: number; isDrawn: boolean; drawnAt: Date | null }[] = []
+
+    for (const numValue of numberValues) {
+      const kujiNumber = await app.prisma.kujiNumber.findFirst({
+        where: { eventId: id, number: numValue, isDrawn: false },
+      })
+      if (!kujiNumber) continue
+
+      const updated = await app.prisma.kujiNumber.update({
+        where: { id: kujiNumber.id },
+        data: { isDrawn: true, drawnAt: new Date() },
+      })
+      drawnList.push(updated)
+    }
+
+    if (drawnList.length > 0) {
+      app.io.to(`event:${id}`).emit('number:drawn', { eventId: id, numbers: drawnList })
+    }
+
+    return reply.send({ drawn: drawnList.length, skipped: numberValues.length - drawnList.length })
   })
 
   // ── 번호 수동 추첨 (어드민 클릭) ─────────────────────────────

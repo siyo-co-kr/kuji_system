@@ -220,17 +220,39 @@ export default function EventsPage() {
   )
 }
 
+/** "51-60,80,90" 형식의 문자열을 숫자 배열로 파싱 */
+function parsePrizeNumbers(input: string): number[] {
+  const result = new Set<number>()
+  const parts = input.split(',').map((p) => p.trim()).filter(Boolean)
+  for (const part of parts) {
+    if (part.includes('-')) {
+      const [s, e] = part.split('-').map(Number)
+      if (!isNaN(s) && !isNaN(e) && s <= e) {
+        for (let n = s; n <= e; n++) result.add(n)
+      }
+    } else {
+      const n = Number(part)
+      if (!isNaN(n) && n > 0) result.add(n)
+    }
+  }
+  return [...result].sort((a, b) => a - b)
+}
+
 function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const [mode, setMode] = useState<'online' | 'offline'>('online')
   const [form, setForm] = useState({
     title: '', description: '', totalCount: '', pricePerUnit: '',
     thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10',
     isVisible: false,
+    // 오프라인 전용
+    maxNumber: '', prizeNumbers: '',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleClose = () => {
-    setForm({ title: '', description: '', totalCount: '', pricePerUnit: '', thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10', isVisible: false })
+    setMode('online')
+    setForm({ title: '', description: '', totalCount: '', pricePerUnit: '', thumbnailUrl: '', bonusEnabled: false, bonusThreshold: '10', isVisible: false, maxNumber: '', prizeNumbers: '' })
     setError('')
     onClose()
   }
@@ -253,6 +275,19 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
       setError('보너스 기준 수량은 2~100 사이로 입력해주세요.')
       return
     }
+
+    let maxNumber: number | undefined
+    let prizeNumbers: number[] = []
+
+    if (mode === 'offline') {
+      maxNumber = Number(form.maxNumber)
+      if (!maxNumber || maxNumber < 1) { setError('오프라인 모드는 최대 번호를 입력해주세요.'); return }
+      if (maxNumber > totalCount) { setError('최대 번호는 전체 번호 수보다 클 수 없습니다.'); return }
+      prizeNumbers = parsePrizeNumbers(form.prizeNumbers)
+      const overLimit = prizeNumbers.find((n) => n > maxNumber!)
+      if (overLimit) { setError(`경품 번호 ${overLimit}이 최대 번호(${maxNumber})를 초과합니다.`); return }
+    }
+
     setLoading(true)
     try {
       await api.post('/events', {
@@ -263,6 +298,8 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
         bonusEnabled: form.bonusEnabled,
         bonusThreshold: form.bonusEnabled ? bonusThreshold : 10,
         isVisible: form.isVisible,
+        mode,
+        ...(mode === 'offline' ? { maxNumber, prizeNumbers } : {}),
       })
       onCreated()
       handleClose()
@@ -276,6 +313,32 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
   return (
     <Modal open={open} onClose={handleClose} title="새 이벤트 생성" className="max-w-md">
       <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* ── 모드 선택 ── */}
+        <div className="grid grid-cols-2 gap-2">
+          {(['online', 'offline'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
+                mode === m
+                  ? m === 'online'
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-orange-400 bg-orange-50 text-orange-700'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300'
+              }`}
+            >
+              {m === 'online' ? '🌐 온라인 모드' : '📦 오프라인 모드'}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 -mt-2">
+          {mode === 'online'
+            ? '번호가 1부터 순차적으로 생성됩니다.'
+            : '최대 번호를 기준으로 번호가 순환 생성됩니다. 경품 번호는 1회만 등장합니다.'}
+        </p>
+
         <Input name="title" label="이벤트명 *" placeholder="예: 2026 여름 쿠지"
           value={form.title} onChange={handleChange} required />
         <div className="flex flex-col gap-1">
@@ -285,11 +348,34 @@ function CreateEventModal({ open, onClose, onCreated }: { open: boolean; onClose
             className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input name="totalCount" type="number" label="전체 번호 수 *" placeholder="예: 100"
-            min={1} max={10000} value={form.totalCount} onChange={handleChange} required />
+          <Input name="totalCount" type="number" label="전체 번호 수 *" placeholder="예: 300"
+            min={1} max={100000} value={form.totalCount} onChange={handleChange} required />
           <Input name="pricePerUnit" type="number" label="장당 가격 (원) *" placeholder="예: 5000"
             min={0} value={form.pricePerUnit} onChange={handleChange} required />
         </div>
+
+        {/* ── 오프라인 전용 필드 ── */}
+        {mode === 'offline' && (
+          <div className="rounded-xl border-2 border-orange-200 bg-orange-50/50 p-4 space-y-3">
+            <p className="text-xs font-semibold text-orange-700 mb-1">오프라인 모드 설정</p>
+            <Input name="maxNumber" type="number" label="최대 번호 *"
+              placeholder="예: 110"
+              min={1} value={form.maxNumber} onChange={handleChange} />
+            <div>
+              <Input name="prizeNumbers" label="경품 번호 (선택)"
+                placeholder="예: 51-60 또는 51,52,53"
+                value={form.prizeNumbers} onChange={handleChange} />
+              <p className="text-xs text-orange-600 mt-1">
+                경품 번호는 전체 시퀀스에서 1회만 등장합니다. 비워두면 모든 번호가 순환합니다.
+              </p>
+            </div>
+            {form.maxNumber && form.totalCount && (
+              <p className="text-xs text-gray-500">
+                생성 예시: 1~{form.maxNumber} → 반복 (경품 번호 제외) → 총 {form.totalCount}장
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ── 10+1 보너스 설정 ── */}
         <div className={`rounded-xl border p-4 transition-colors ${

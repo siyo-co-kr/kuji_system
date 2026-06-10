@@ -150,9 +150,6 @@ export default function SingleView({ storeId }: Props) {
     )
   }
 
-  const winProb = stats && stats.remainingCount > 0
-    ? stats.remainingPrizeCount / stats.remainingCount * 100
-    : 0
   const drawnCount = stats ? stats.totalCount - stats.remainingCount : 0
   const progress = stats && stats.totalCount > 0 ? drawnCount / stats.totalCount * 100 : 0
 
@@ -199,33 +196,14 @@ export default function SingleView({ storeId }: Props) {
             </div>
 
             <div className="flex-1 min-h-0 overflow-hidden px-4 py-2">
-              <GaugeDisplay stats={stats} winProbability={winProb} compact={false} />
+              <GaugeDisplay stats={stats} compact={false} />
             </div>
 
             {/* 경품 카드 (가로 스크롤) */}
             {selectedEvent.prizes.length > 0 && (
               <div className="flex-shrink-0 px-4 pb-3 border-t border-gray-800 pt-3">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">경품</p>
-                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                  {selectedEvent.prizes.map((prize) => {
-                    const total = prize.prizeNumbers.length
-                    const remaining = total - prize.prizeNumbers.filter((pn) => pn.kujiNumber.isDrawn).length
-                    const exhausted = remaining === 0
-                    return (
-                      <div key={prize.id} className={`flex-shrink-0 w-24 rounded-xl overflow-hidden border ${exhausted ? 'border-gray-700 opacity-50' : 'border-gray-700'}`}>
-                        <div className="aspect-square bg-gray-800 flex items-center justify-center overflow-hidden">
-                          {prize.images[0]
-                            ? <img src={prize.images[0].imageUrl} alt={prize.name} className={`w-full h-full object-cover ${exhausted ? 'grayscale' : ''}`} />
-                            : <span className="text-3xl">{exhausted ? '🩶' : '🎁'}</span>}
-                        </div>
-                        <div className="bg-gray-900 p-2">
-                          <p className={`text-xs font-semibold truncate ${exhausted ? 'text-gray-600 line-through' : 'text-white'}`}>{prize.name}</p>
-                          <p className={`text-xs font-bold ${exhausted ? 'text-gray-600' : 'text-amber-400'}`}>{remaining}/{total}</p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                <SinglePrizeScrollRow prizes={selectedEvent.prizes} />
                 <button onClick={() => setShowPrizes(true)}
                   className="w-full mt-2 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold hover:bg-amber-500/20 transition-colors">
                   🎁 경품 전체 보기
@@ -238,7 +216,6 @@ export default function SingleView({ storeId }: Props) {
           <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
             <div className="flex-shrink-0 px-5 py-3 border-b border-gray-800 flex items-center gap-6">
               <StatBox label="남은 번호" value={stats.remainingCount} total={stats.totalCount} color="text-indigo-400" />
-              <StatBox label="당첨 확률" value={parseFloat(winProb.toFixed(1))} unit="%" color="text-amber-400" />
               <StatBox label="남은 경품" value={stats.remainingPrizeCount} total={stats.totalPrizeCount} color="text-green-400" />
               <div className="flex-1">
                 <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
@@ -272,6 +249,81 @@ export default function SingleView({ storeId }: Props) {
         <PrizeModal eventTitle={selectedEvent.title} prizes={selectedEvent.prizes} onClose={() => setShowPrizes(false)} />
       )}
     </>
+  )
+}
+
+/* ── 경품 가로 스크롤 (화살표 포함) ───────────────────────────────── */
+function SinglePrizeScrollRow({ prizes }: { prizes: { id: string; images: { imageUrl: string }[]; name: string; prizeNumbers: { kujiNumber: { isDrawn: boolean } }[] }[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canLeft,  setCanLeft]  = useState(false)
+  const [canRight, setCanRight] = useState(false)
+
+  const updateArrows = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 2)
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+  }
+
+  useEffect(() => {
+    updateArrows()
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [prizes])
+
+  const scroll = (dir: 'left' | 'right') => {
+    scrollRef.current?.scrollBy({ left: dir === 'right' ? 112 : -112, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="relative flex items-stretch overflow-hidden">
+      {canLeft && (
+        <button
+          onClick={() => scroll('left')}
+          className="absolute left-0 top-0 bottom-0 z-10 flex items-center justify-center
+            bg-gradient-to-r from-gray-900 to-transparent pr-1 w-7"
+        >
+          <span className="text-gray-400 font-bold text-lg">‹</span>
+        </button>
+      )}
+      <div
+        ref={scrollRef}
+        onScroll={updateArrows}
+        className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 w-full"
+        style={{ paddingLeft: canLeft ? '1.75rem' : undefined, paddingRight: canRight ? '1.75rem' : undefined }}
+      >
+        {prizes.map((prize) => {
+          const total = prize.prizeNumbers.length
+          const remaining = total - prize.prizeNumbers.filter((pn) => pn.kujiNumber.isDrawn).length
+          const exhausted = remaining === 0
+          return (
+            <div key={prize.id} className={`flex-shrink-0 w-24 rounded-xl overflow-hidden border ${exhausted ? 'border-gray-700 opacity-50' : 'border-gray-700'}`}>
+              <div className="aspect-square bg-gray-800 flex items-center justify-center overflow-hidden">
+                {prize.images[0]
+                  ? <img src={prize.images[0].imageUrl} alt={prize.name} className={`w-full h-full object-cover ${exhausted ? 'grayscale' : ''}`} />
+                  : <span className="text-3xl">{exhausted ? '🩶' : '🎁'}</span>}
+              </div>
+              <div className="bg-gray-900 p-2">
+                <p className={`text-xs font-semibold truncate ${exhausted ? 'text-gray-600 line-through' : 'text-white'}`}>{prize.name}</p>
+                <p className={`text-xs font-bold ${exhausted ? 'text-gray-600' : 'text-amber-400'}`}>{remaining}/{total}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {canRight && (
+        <button
+          onClick={() => scroll('right')}
+          className="absolute right-0 top-0 bottom-0 z-10 flex items-center justify-center
+            bg-gradient-to-l from-gray-900 to-transparent pl-1 w-7"
+        >
+          <span className="text-gray-400 font-bold text-lg">›</span>
+        </button>
+      )}
+    </div>
   )
 }
 

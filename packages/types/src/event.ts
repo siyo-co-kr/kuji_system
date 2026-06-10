@@ -20,6 +20,8 @@ export interface Event {
   bonusEnabled: boolean
   bonusThreshold: number
   isVisible: boolean
+  mode: string
+  maxNumber?: number | null
   status: EventStatus
   startedAt?: string
   endedAt?: string
